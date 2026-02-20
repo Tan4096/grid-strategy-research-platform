@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from math import isfinite
+from math import floor, isfinite
 from typing import Callable, Literal, Optional
 
 import numpy as np
@@ -33,6 +33,7 @@ class GridPosition:
 class EngineState:
     realized_pnl: float = 0.0
     fees_paid: float = 0.0
+    funding_paid: float = 0.0
     stop_loss_count: int = 0
     liquidation_count: int = 0
     full_grid_profit_count: int = 0
@@ -62,6 +63,33 @@ def _apply_close_slippage(side: GridSide, level: float, slippage: float) -> floa
     if side == GridSide.LONG:
         return level * (1.0 - slippage)
     return level * (1.0 + slippage)
+
+
+def _round_to_step(value: float, step: float) -> float:
+    if step <= 0:
+        return value
+    scaled = round(value / step)
+    return float(scaled * step)
+
+
+def _floor_to_step(value: float, step: float) -> float:
+    if step <= 0:
+        return value
+    scaled = floor((value / step) + 1e-12)
+    return float(scaled * step)
+
+
+def _entry_fee_rate(strategy: StrategyConfig, as_base_position: bool = False) -> float:
+    # Grid limits are modeled as maker fills; base-position init behaves like market fill.
+    if as_base_position:
+        return float(strategy.taker_fee_rate if strategy.taker_fee_rate is not None else strategy.fee_rate)
+    return float(strategy.maker_fee_rate if strategy.maker_fee_rate is not None else strategy.fee_rate)
+
+
+def _exit_fee_rate(strategy: StrategyConfig, close_reason: str) -> float:
+    if close_reason == "grid_take_profit":
+        return float(strategy.maker_fee_rate if strategy.maker_fee_rate is not None else strategy.fee_rate)
+    return float(strategy.taker_fee_rate if strategy.taker_fee_rate is not None else strategy.fee_rate)
 
 
 def _unrealized_pnl(positions: dict[int, GridPosition], side: GridSide, mark_price: float) -> float:
@@ -140,7 +168,7 @@ def initialize_base_position(
     nodes: list[float],
     first_candle: Candle,
     order_notional: float,
-    open_position: Callable[[int, float, datetime], None],
+    open_position: Callable[[int, float, datetime, bool], bool],
     emit_event: Callable[[datetime, str, float, str], None],
 ) -> tuple[int, float]:
     if not strategy.use_base_position:
@@ -175,10 +203,16 @@ def initialize_base_position(
         grid_indices = list(range(1, min(strategy.grids, 1 + base_grid_count)))
 
     base_grid_count = min(base_grid_count, len(grid_indices))
-    initial_position_size = order_notional * base_grid_count
+    opened_count = 0
 
     for grid_index in grid_indices:
-        open_position(grid_index, base_entry_price, first_candle.timestamp)
+        opened = open_position(grid_index, base_entry_price, first_candle.timestamp, True)
+        if not opened:
+            break
+        opened_count += 1
+
+    base_grid_count = opened_count
+    initial_position_size = order_notional * base_grid_count
 
     if base_grid_count > 0:
         emit_event(
@@ -194,7 +228,11 @@ def initialize_base_position(
     return base_grid_count, initial_position_size
 
 
-def run_backtest(candles: list[Candle], strategy: StrategyConfig) -> BacktestResult:
+def run_backtest(
+    candles: list[Candle],
+    strategy: StrategyConfig,
+    funding_rates: Optional[list[tuple[datetime, float]]] = None,
+) -> BacktestResult:
     if len(candles) < 2:
         raise ValueError("at least 2 candles are required for backtest")
 
@@ -229,8 +267,11 @@ def run_backtest(candles: list[Candle], strategy: StrategyConfig) -> BacktestRes
     def close_position(grid_index: int, raw_exit_level: float, ts: datetime, close_reason: str) -> None:
         position = positions.pop(grid_index)
         exit_price = _apply_close_slippage(strategy.side, raw_exit_level, strategy.slippage)
+        exit_price = _round_to_step(exit_price, strategy.price_tick_size)
+        if exit_price <= 0:
+            exit_price = max(raw_exit_level, 1e-9)
         close_notional = abs(exit_price * position.quantity)
-        close_fee = close_notional * strategy.fee_rate
+        close_fee = close_notional * _exit_fee_rate(strategy, close_reason)
 
         if strategy.side == GridSide.LONG:
             gross = (exit_price - position.entry_price) * position.quantity
@@ -276,10 +317,24 @@ def run_backtest(candles: list[Candle], strategy: StrategyConfig) -> BacktestRes
             message=f"grid={grid_index}, reason={close_reason}, net_pnl={net:.4f}",
         )
 
-    def open_position(grid_index: int, raw_entry_level: float, ts: datetime) -> None:
+    def open_position(grid_index: int, raw_entry_level: float, ts: datetime, as_base_position: bool = False) -> bool:
+        if order_notional < strategy.min_notional:
+            return False
         entry_price = _apply_open_slippage(strategy.side, raw_entry_level, strategy.slippage)
+        entry_price = _round_to_step(entry_price, strategy.price_tick_size)
+        if entry_price <= 0:
+            return False
+
         quantity = order_notional / entry_price
-        entry_fee = order_notional * strategy.fee_rate
+        quantity = _floor_to_step(quantity, strategy.quantity_step_size)
+        if quantity <= 0:
+            return False
+
+        entry_notional = abs(entry_price * quantity)
+        if entry_notional < strategy.min_notional:
+            return False
+
+        entry_fee = entry_notional * _entry_fee_rate(strategy, as_base_position=as_base_position)
 
         state.fees_paid += entry_fee
         positions[grid_index] = GridPosition(
@@ -292,6 +347,7 @@ def run_backtest(candles: list[Candle], strategy: StrategyConfig) -> BacktestRes
         )
 
         emit_event(ts, event_type="open", price=entry_price, message=f"grid={grid_index}, qty={quantity:.8f}")
+        return True
 
     base_grid_count, initial_position_size = initialize_base_position(
         strategy=strategy,
@@ -309,7 +365,7 @@ def run_backtest(candles: list[Candle], strategy: StrategyConfig) -> BacktestRes
                     continue
                 open_level = grid_lines[grid_index]
                 if _touched(open_level, candle) and can_open(candle.close):
-                    open_position(grid_index, open_level, candle.timestamp)
+                    open_position(grid_index, open_level, candle.timestamp, False)
             return
 
         for grid_index in range(strategy.grids):
@@ -317,7 +373,7 @@ def run_backtest(candles: list[Candle], strategy: StrategyConfig) -> BacktestRes
                 continue
             open_level = grid_lines[grid_index + 1]
             if _touched(open_level, candle) and can_open(candle.close):
-                open_position(grid_index, open_level, candle.timestamp)
+                open_position(grid_index, open_level, candle.timestamp, False)
 
     def run_close_pass(candle: Candle) -> None:
         active_indices = sorted(positions.keys())
@@ -358,6 +414,69 @@ def run_backtest(candles: list[Candle], strategy: StrategyConfig) -> BacktestRes
 
     active = True
     stop_without_reopen = False
+    prev_candle_ts = candles[0].timestamp
+    funding_schedule = sorted(funding_rates or [], key=lambda item: item[0])
+    funding_cursor = 0
+
+    def apply_funding(candle: Candle) -> None:
+        nonlocal prev_candle_ts, funding_cursor
+
+        if funding_schedule:
+            while funding_cursor < len(funding_schedule):
+                funding_ts, funding_rate = funding_schedule[funding_cursor]
+                if funding_ts > candle.timestamp:
+                    break
+                funding_cursor += 1
+                if not positions or funding_rate == 0:
+                    continue
+
+                notional = sum(candle.close * p.quantity for p in positions.values())
+                side_sign = 1.0 if strategy.side == GridSide.LONG else -1.0
+                funding_pnl = -side_sign * funding_rate * notional
+                state.realized_pnl += funding_pnl
+                if funding_pnl < 0:
+                    state.funding_paid += abs(funding_pnl)
+                emit_event(
+                    candle.timestamp,
+                    event_type="funding",
+                    price=candle.close,
+                    message=(
+                        f"funding_pnl={funding_pnl:.6f}, rate={funding_rate:.8f}, "
+                        f"funding_time={funding_ts.isoformat()}"
+                    ),
+                )
+            prev_candle_ts = candle.timestamp
+            return
+
+        if not positions:
+            prev_candle_ts = candle.timestamp
+            return
+
+        delta_hours = max((candle.timestamp - prev_candle_ts).total_seconds() / 3600.0, 0.0)
+        prev_candle_ts = candle.timestamp
+        if delta_hours <= 0:
+            return
+
+        if strategy.funding_rate_per_8h == 0:
+            return
+
+        interval_hours = max(float(strategy.funding_interval_hours), 1.0)
+        effective_rate = strategy.funding_rate_per_8h * (delta_hours / interval_hours)
+        if effective_rate == 0:
+            return
+
+        notional = sum(candle.close * p.quantity for p in positions.values())
+        side_sign = 1.0 if strategy.side == GridSide.LONG else -1.0
+        funding_pnl = -side_sign * effective_rate * notional
+        state.realized_pnl += funding_pnl
+        if funding_pnl < 0:
+            state.funding_paid += abs(funding_pnl)
+        emit_event(
+            candle.timestamp,
+            event_type="funding",
+            price=candle.close,
+            message=f"funding_pnl={funding_pnl:.6f}, rate={effective_rate:.8f}",
+        )
 
     for candle in candles:
         if not active:
@@ -388,15 +507,23 @@ def run_backtest(candles: list[Candle], strategy: StrategyConfig) -> BacktestRes
         if active:
             execute_stop_loss(candle)
 
+        apply_funding(candle)
+
         if positions:
             adverse_price = candle.low if strategy.side == GridSide.LONG else candle.high
-            eq_worst = _equity(strategy.margin, state, positions, strategy.side, adverse_price)
-            mm_worst = _maintenance_margin(positions, adverse_price, strategy.maintenance_margin_rate)
+            liquidation_price = candle.close if strategy.use_mark_price_for_liquidation else adverse_price
+            eq_worst = _equity(strategy.margin, state, positions, strategy.side, liquidation_price)
+            mm_worst = _maintenance_margin(positions, liquidation_price, strategy.maintenance_margin_rate)
             if eq_worst <= mm_worst:
                 for grid_index in list(positions.keys()):
-                    close_position(grid_index, adverse_price, candle.timestamp, "liquidation")
+                    close_position(grid_index, liquidation_price, candle.timestamp, "liquidation")
                 state.liquidation_count += 1
-                emit_event(candle.timestamp, event_type="liquidation", price=adverse_price, message="forced liquidation")
+                emit_event(
+                    candle.timestamp,
+                    event_type="liquidation",
+                    price=liquidation_price,
+                    message="forced liquidation",
+                )
                 active = False
 
         mark_price = candle.close
@@ -443,10 +570,7 @@ def run_backtest(candles: list[Candle], strategy: StrategyConfig) -> BacktestRes
     final_mark = candles[-1].close
     final_equity = _equity(strategy.margin, state, positions, strategy.side, final_mark)
 
-    span_days = (candles[-1].timestamp - candles[0].timestamp).total_seconds() / 86400.0
     annualized_return_pct: Optional[float] = None
-    if span_days >= 30 and strategy.margin > 0 and final_equity > 0:
-        annualized_return_pct = ((final_equity / strategy.margin) ** (365.0 / span_days) - 1.0) * 100.0
 
     average_round_profit = (
         sum(trade.net_pnl for trade in trades) / state.total_closed_trades if state.total_closed_trades else 0.0
@@ -480,6 +604,7 @@ def run_backtest(candles: list[Candle], strategy: StrategyConfig) -> BacktestRes
         total_closed_trades=state.total_closed_trades,
         status=status,
         fees_paid=state.fees_paid,
+        funding_paid=state.funding_paid,
         use_base_position=strategy.use_base_position,
         base_grid_count=base_grid_count,
         initial_position_size=initial_position_size,
@@ -500,7 +625,9 @@ def run_backtest(candles: list[Candle], strategy: StrategyConfig) -> BacktestRes
 
 
 def run_backtest_for_optimization(
-    candles: list[Candle], strategy: StrategyConfig
+    candles: list[Candle],
+    strategy: StrategyConfig,
+    funding_rates: Optional[list[tuple[datetime, float]]] = None,
 ) -> OptimizationBacktestEvaluation:
     """Run the same execution logic with compact outputs for optimization."""
     if len(candles) < 2:
@@ -543,8 +670,11 @@ def run_backtest_for_optimization(
         nonlocal total_position_qty, total_entry_notional
         position = positions.pop(grid_index)
         exit_price = _apply_close_slippage(strategy.side, raw_exit_level, strategy.slippage)
+        exit_price = _round_to_step(exit_price, strategy.price_tick_size)
+        if exit_price <= 0:
+            exit_price = max(raw_exit_level, 1e-9)
         close_notional = abs(exit_price * position.quantity)
-        close_fee = close_notional * strategy.fee_rate
+        close_fee = close_notional * _exit_fee_rate(strategy, close_reason)
 
         if strategy.side == GridSide.LONG:
             gross = (exit_price - position.entry_price) * position.quantity
@@ -570,11 +700,22 @@ def run_backtest_for_optimization(
         total_position_qty -= position.quantity
         total_entry_notional -= position.entry_price * position.quantity
 
-    def open_position(grid_index: int, raw_entry_level: float, ts: datetime) -> None:
+    def open_position(grid_index: int, raw_entry_level: float, ts: datetime, as_base_position: bool = False) -> bool:
         nonlocal total_position_qty, total_entry_notional
+        if order_notional < strategy.min_notional:
+            return False
         entry_price = _apply_open_slippage(strategy.side, raw_entry_level, strategy.slippage)
+        entry_price = _round_to_step(entry_price, strategy.price_tick_size)
+        if entry_price <= 0:
+            return False
         quantity = order_notional / entry_price
-        entry_fee = order_notional * strategy.fee_rate
+        quantity = _floor_to_step(quantity, strategy.quantity_step_size)
+        if quantity <= 0:
+            return False
+        entry_notional = abs(entry_price * quantity)
+        if entry_notional < strategy.min_notional:
+            return False
+        entry_fee = entry_notional * _entry_fee_rate(strategy, as_base_position=as_base_position)
 
         state.fees_paid += entry_fee
         positions[grid_index] = GridPosition(
@@ -587,6 +728,7 @@ def run_backtest_for_optimization(
         )
         total_position_qty += quantity
         total_entry_notional += entry_price * quantity
+        return True
 
     initialize_base_position(
         strategy=strategy,
@@ -605,7 +747,7 @@ def run_backtest_for_optimization(
                     continue
                 open_level = grid_lines[grid_index]
                 if _touched(open_level, candle) and can_open(candle_close):
-                    open_position(grid_index, open_level, candle.timestamp)
+                    open_position(grid_index, open_level, candle.timestamp, False)
             return
 
         for grid_index in range(strategy.grids):
@@ -613,7 +755,7 @@ def run_backtest_for_optimization(
                 continue
             open_level = grid_lines[grid_index + 1]
             if _touched(open_level, candle) and can_open(candle_close):
-                open_position(grid_index, open_level, candle.timestamp)
+                open_position(grid_index, open_level, candle.timestamp, False)
 
     def run_close_pass(candle: Candle) -> None:
         active_indices = sorted(positions.keys())
@@ -653,6 +795,52 @@ def run_backtest_for_optimization(
 
     active = True
     stop_without_reopen = False
+    prev_candle_ts = candles[0].timestamp
+    funding_schedule = sorted(funding_rates or [], key=lambda item: item[0])
+    funding_cursor = 0
+
+    def apply_funding(candle: Candle) -> None:
+        nonlocal prev_candle_ts, funding_cursor
+        if funding_schedule:
+            while funding_cursor < len(funding_schedule):
+                funding_ts, funding_rate = funding_schedule[funding_cursor]
+                if funding_ts > candle.timestamp:
+                    break
+                funding_cursor += 1
+                if not positions or funding_rate == 0:
+                    continue
+
+                notional = sum(candle.close * p.quantity for p in positions.values())
+                side_sign = 1.0 if strategy.side == GridSide.LONG else -1.0
+                funding_pnl = -side_sign * funding_rate * notional
+                state.realized_pnl += funding_pnl
+                if funding_pnl < 0:
+                    state.funding_paid += abs(funding_pnl)
+            prev_candle_ts = candle.timestamp
+            return
+
+        if not positions:
+            prev_candle_ts = candle.timestamp
+            return
+
+        delta_hours = max((candle.timestamp - prev_candle_ts).total_seconds() / 3600.0, 0.0)
+        prev_candle_ts = candle.timestamp
+        if delta_hours <= 0:
+            return
+        if strategy.funding_rate_per_8h == 0:
+            return
+
+        interval_hours = max(float(strategy.funding_interval_hours), 1.0)
+        effective_rate = strategy.funding_rate_per_8h * (delta_hours / interval_hours)
+        if effective_rate == 0:
+            return
+
+        notional = sum(candle.close * p.quantity for p in positions.values())
+        side_sign = 1.0 if strategy.side == GridSide.LONG else -1.0
+        funding_pnl = -side_sign * effective_rate * notional
+        state.realized_pnl += funding_pnl
+        if funding_pnl < 0:
+            state.funding_paid += abs(funding_pnl)
 
     for candle in candles:
         if not active:
@@ -681,13 +869,16 @@ def run_backtest_for_optimization(
         if active:
             execute_stop_loss(candle)
 
+        apply_funding(candle)
+
         if positions:
             adverse_price = candle.low if strategy.side == GridSide.LONG else candle.high
-            eq_worst = equity_at(adverse_price)
-            mm_worst = used_notional_at(adverse_price) * strategy.maintenance_margin_rate
+            liquidation_price = candle.close if strategy.use_mark_price_for_liquidation else adverse_price
+            eq_worst = equity_at(liquidation_price)
+            mm_worst = used_notional_at(liquidation_price) * strategy.maintenance_margin_rate
             if eq_worst <= mm_worst:
                 for grid_index in list(positions.keys()):
-                    close_position(grid_index, adverse_price, candle.timestamp, "liquidation")
+                    close_position(grid_index, liquidation_price, candle.timestamp, "liquidation")
                 state.liquidation_count += 1
                 active = False
 

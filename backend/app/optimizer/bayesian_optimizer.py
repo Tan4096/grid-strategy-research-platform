@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import os
 import re
 import threading
 from dataclasses import dataclass
@@ -65,6 +66,7 @@ def run_bayesian_search(
     resume_study_key: Optional[str],
     objective_builder: Callable[[Any], BayesianTrialOutcome],
     progress_hook: Optional[Callable[[int, int], None]] = None,
+    should_stop: Optional[Callable[[], bool]] = None,
 ) -> BayesianRunOutput:
     return _run_optuna_search(
         total_trials=total_trials,
@@ -75,6 +77,7 @@ def run_bayesian_search(
         resume_study_key=resume_study_key,
         objective_builder=objective_builder,
         progress_hook=progress_hook,
+        should_stop=should_stop,
         mode="bayesian",
     )
 
@@ -88,6 +91,7 @@ def run_random_pruned_search(
     resume_study_key: Optional[str],
     objective_builder: Callable[[Any], BayesianTrialOutcome],
     progress_hook: Optional[Callable[[int, int], None]] = None,
+    should_stop: Optional[Callable[[], bool]] = None,
 ) -> BayesianRunOutput:
     return _run_optuna_search(
         total_trials=total_trials,
@@ -98,6 +102,7 @@ def run_random_pruned_search(
         resume_study_key=resume_study_key,
         objective_builder=objective_builder,
         progress_hook=progress_hook,
+        should_stop=should_stop,
         mode="random_pruned",
     )
 
@@ -112,6 +117,7 @@ def _run_optuna_search(
     resume_study_key: Optional[str],
     objective_builder: Callable[[Any], BayesianTrialOutcome],
     progress_hook: Optional[Callable[[int, int], None]] = None,
+    should_stop: Optional[Callable[[], bool]] = None,
     mode: str = "bayesian",
 ) -> BayesianRunOutput:
     optuna = _load_optuna()
@@ -121,10 +127,7 @@ def _run_optuna_search(
     warmup_trials = int(trial_budget * max(0.0, min(warmup_ratio, 0.9)))
     startup_trials = max(0, min(warmup_trials, trial_budget))
 
-    # Optuna's n_jobs uses threads. Our objective is Python-loop heavy (GIL-bound),
-    # so multi-thread trials usually reduce throughput versus single-thread execution.
-    _ = max_workers  # keep API compatibility
-    effective_workers = 1
+    effective_workers = max(1, min(int(max_workers), os.cpu_count() or 1))
 
     if mode == "bayesian":
         sampler = optuna.samplers.TPESampler(
@@ -167,6 +170,9 @@ def _run_optuna_search(
 
     def objective(trial: Any) -> float:
         nonlocal trials_done, trials_completed, trials_pruned, running_best
+        if should_stop and should_stop():
+            study.stop()
+            raise optuna.TrialPruned("cancelled")
         try:
             outcome = objective_builder(trial)
         except TrialPruneSignal as exc:

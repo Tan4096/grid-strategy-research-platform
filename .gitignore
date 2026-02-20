@@ -20,6 +20,10 @@ dist/
 # Logs / runtime
 *.log
 *.pid
+*.sqlite3
+backend/data/*.sqlite3
+release/*.tar.gz
+release/*.zip
 
 # Editors
 .idea/

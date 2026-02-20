@@ -14,6 +14,11 @@
 - 支持“开底仓”（交易所节点制初始化逻辑）
 - 逐 K 线执行，按 high/low 判断触发
 - 强平模拟、保证金风险率、预估强平价格
+- 支持实盘约束参数：
+  - Maker/Taker 分离手续费
+  - 资金费率模拟（按周期累计）
+  - 价格最小变动、数量最小步长、最小名义金额
+  - 可选按标记价进行强平判定
 - 输出完整统计：
   - 总收益、年化（数据跨度足够时）
   - 胜率、最大回撤、最大单次亏损、平均持仓时间等
@@ -22,6 +27,7 @@
   - Equity 曲线
   - 回撤曲线
   - 保证金风险相关曲线
+  - 事件时间线（open/close/stop/funding/liquidation）
 
 ### 参数优化模块
 - Grid Search 扫描维度：
@@ -45,9 +51,11 @@
   - 最小交易数、回撤约束、正收益约束
 - 结果：
   - 排序表 + 分页 + CSV 导出
+  - 表格/卡片双视图 + 核心/诊断列预设
   - 热力图
   - 最优参数收益曲线
   - 一键应用到回测模块
+  - 优化历史中心（加载历史 / 重启任务 / 双任务对比）
 
 ### 性能与体验
 - 优化执行为多进程并行 + 批处理
@@ -60,6 +68,12 @@
   - 回测参数
   - 参数优化配置
   - 注意：CSV 文件内容不会持久化（仅保留配置，不缓存大文件）
+- 支持命名策略模板：
+  - 保存多个模板
+  - 一键应用
+  - 导入/导出 JSON
+- 优化轮询支持可见性退避（前台高频、后台低频）+ ETA 估算 + 完成通知
+- 新手 3 步引导卡片（首次打开可见，可关闭）
 
 ## 2. 技术栈
 
@@ -164,8 +178,22 @@ npm run dev
 - `GET /api/v1/backtest/defaults`
 - `POST /api/v1/backtest/run`
 - `POST /api/v1/optimization/start`
+- `POST /api/v1/optimization/{job_id}/cancel`
+- `GET /api/v1/optimization/{job_id}/progress`
 - `GET /api/v1/optimization/{job_id}`
 - `GET /api/v1/optimization/{job_id}/export`
+- `GET /api/v1/optimization-history`
+
+## 8.1 生产安全配置
+
+- 后端 CORS 可通过环境变量控制：
+  - `CORS_ALLOW_ORIGINS=http://localhost:5173,http://127.0.0.1:5173`
+- 优化任务记录支持 TTL 与上限清理：
+  - `OPTIMIZATION_JOB_TTL_SECONDS`（默认 86400）
+  - `OPTIMIZATION_MAX_JOB_RECORDS`（默认 200）
+- 优化结果快照持久化（SQLite）：
+  - `OPTIMIZATION_STORE_PATH`（默认 `backend/data/optimization_jobs.sqlite3`）
+  - `OPTIMIZATION_PERSIST_ROWS_LIMIT`（默认 5000）
 
 ## 8. 测试与构建
 

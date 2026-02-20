@@ -9,6 +9,7 @@ BACKEND_VENV="$BACKEND_DIR/.venv"
 
 BACKEND_PORT="${BACKEND_PORT:-8000}"
 FRONTEND_PORT="${FRONTEND_PORT:-5173}"
+BACKEND_REQ_HASH_FILE="$BACKEND_VENV/.requirements.sha256"
 
 BACKEND_PID=""
 FRONTEND_PID=""
@@ -45,10 +46,48 @@ if [[ ! -d "$BACKEND_VENV" ]]; then
   python3 -m venv "$BACKEND_VENV"
 fi
 
+if command -v shasum >/dev/null 2>&1; then
+  BACKEND_REQ_HASH="$(shasum -a 256 "$BACKEND_DIR/requirements.txt" | awk '{print $1}')"
+else
+  BACKEND_REQ_HASH="$(python3 - <<PY
+import hashlib
+from pathlib import Path
+path = Path(r"$BACKEND_DIR/requirements.txt")
+print(hashlib.sha256(path.read_bytes()).hexdigest())
+PY
+)"
+fi
+
 log "Checking backend dependencies..."
 source "$BACKEND_VENV/bin/activate"
-if ! python -c "import fastapi, uvicorn, numpy, pandas, requests" >/dev/null 2>&1; then
+NEEDS_BACKEND_INSTALL=0
+if [[ ! -f "$BACKEND_REQ_HASH_FILE" ]]; then
+  NEEDS_BACKEND_INSTALL=1
+elif [[ "$(cat "$BACKEND_REQ_HASH_FILE")" != "$BACKEND_REQ_HASH" ]]; then
+  NEEDS_BACKEND_INSTALL=1
+elif ! python - <<'PY' >/dev/null 2>&1
+import importlib.util
+required_modules = [
+    "fastapi",
+    "uvicorn",
+    "numpy",
+    "pandas",
+    "requests",
+    "pydantic",
+    "multipart",
+    "optuna",
+    "pytest",
+]
+missing = [name for name in required_modules if importlib.util.find_spec(name) is None]
+raise SystemExit(1 if missing else 0)
+PY
+then
+  NEEDS_BACKEND_INSTALL=1
+fi
+
+if [[ "$NEEDS_BACKEND_INSTALL" -eq 1 ]]; then
   pip install -r "$BACKEND_DIR/requirements.txt"
+  printf '%s\n' "$BACKEND_REQ_HASH" > "$BACKEND_REQ_HASH_FILE"
 fi
 deactivate || true
 

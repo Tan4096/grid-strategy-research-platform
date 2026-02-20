@@ -1,8 +1,20 @@
-import ReactECharts from "echarts-for-react";
+import ReactEChartsCore from "echarts-for-react/lib/core";
+import { echarts, type HeatmapChartOption } from "../lib/echarts-heatmap";
 import { OptimizationHeatmapCell } from "../types";
 
 interface Props {
   data: OptimizationHeatmapCell[];
+}
+
+function toNumberTuple(value: unknown): number[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const parsed = value.map((item) => Number(item));
+  if (parsed.some((item) => !Number.isFinite(item))) {
+    return null;
+  }
+  return parsed;
 }
 
 export default function OptimizationHeatmap({ data }: Props) {
@@ -30,25 +42,40 @@ export default function OptimizationHeatmap({ data }: Props) {
     d.stop_price
   ]);
 
-  const option = {
+  const option: HeatmapChartOption = {
     title: {
       text: "热力图 (杠杆 × 网格数)",
       left: 10,
       top: 8,
       textStyle: {
         color: "#dbeafe",
-        fontSize: 13,
-        fontWeight: 500
+        fontSize: 14,
+        fontWeight: 600
       }
     },
     tooltip: {
       position: "top",
-      formatter: (params: { value: [number, number, number, number, number, number, number, number, number, number] }) => {
+      backgroundColor: "#0f172a",
+      borderColor: "#475569",
+      borderWidth: 1,
+      textStyle: {
+        color: "#e2e8f0",
+        fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+        fontSize: 12
+      },
+      formatter: (params: unknown) => {
+        const candidate = params as { value?: unknown };
+        const values = toNumberTuple(candidate?.value);
+        if (!values || values.length < 10) {
+          return "数据不可用";
+        }
         const [x, y, score, useBasePosition, baseGridCount, initialPositionSize, anchorPrice, lowerPrice, upperPrice, stopPrice] =
-          params.value;
+          values;
+        const leverage = leverageValues[Math.max(0, Math.min(leverageValues.length - 1, Math.round(x)))];
+        const grids = gridValues[Math.max(0, Math.min(gridValues.length - 1, Math.round(y)))];
         return [
-          `杠杆: ${leverageValues[x]}`,
-          `网格: ${gridValues[y]}`,
+          `杠杆: ${leverage}`,
+          `网格: ${grids}`,
           `稳健评分: ${score.toFixed(4)}`,
           `开底仓: ${useBasePosition > 0 ? "是" : "否"}`,
           `底仓格数: ${baseGridCount}`,
@@ -63,8 +90,8 @@ export default function OptimizationHeatmap({ data }: Props) {
     grid: {
       left: 60,
       right: 18,
-      top: 45,
-      bottom: 45
+      top: 50,
+      bottom: 52
     },
     xAxis: {
       type: "category",
@@ -72,8 +99,9 @@ export default function OptimizationHeatmap({ data }: Props) {
       name: "杠杆",
       nameLocation: "middle",
       nameGap: 30,
+      nameTextStyle: { color: "#94a3b8", fontSize: 12 },
       axisLine: { lineStyle: { color: "#334155" } },
-      axisLabel: { color: "#94a3b8" }
+      axisLabel: { color: "#94a3b8", fontSize: 12 }
     },
     yAxis: {
       type: "category",
@@ -81,8 +109,9 @@ export default function OptimizationHeatmap({ data }: Props) {
       name: "网格数",
       nameLocation: "middle",
       nameGap: 40,
+      nameTextStyle: { color: "#94a3b8", fontSize: 12 },
       axisLine: { lineStyle: { color: "#334155" } },
-      axisLabel: { color: "#94a3b8" }
+      axisLabel: { color: "#94a3b8", fontSize: 12 }
     },
     visualMap: {
       min: Math.min(...data.map((d) => d.value)),
@@ -114,8 +143,8 @@ export default function OptimizationHeatmap({ data }: Props) {
   };
 
   return (
-    <div className="card fade-up p-2">
-      <ReactECharts option={option} style={{ width: "100%", height: 360 }} notMerge lazyUpdate />
+    <div className="card fade-up p-3">
+      <ReactEChartsCore echarts={echarts} option={option} style={{ width: "100%", height: 400 }} notMerge lazyUpdate />
     </div>
   );
 }

@@ -16,8 +16,11 @@ uvicorn app.main:app --reload --port 8000
 - `GET /api/v1/backtest/defaults`
 - `POST /api/v1/backtest/run`
 - `POST /api/v1/optimization/start`
+- `POST /api/v1/optimization/{job_id}/cancel`
+- `GET /api/v1/optimization/{job_id}/progress`
 - `GET /api/v1/optimization/{job_id}`
 - `GET /api/v1/optimization/{job_id}/export`
+- `GET /api/v1/optimization-history`
 
 ## Request Example
 
@@ -57,6 +60,10 @@ uvicorn app.main:app --reload --port 8000
 - Supported intervals: `1m,3m,5m,15m,30m,1h,2h,4h,6h,8h,12h,1d`.
 - Supported data sources: `binance`, `bybit`, `okx`, `csv`.
 - Common symbols: `BTCUSDT`, `ETHUSDT`, `SOLUSDT`, `HYPEUSDT` (default `BTCUSDT`).
+- CORS origins can be configured via `CORS_ALLOW_ORIGINS`.
+- Optimization snapshots are persisted to SQLite for recovery:
+  - `OPTIMIZATION_STORE_PATH` (default `backend/data/optimization_jobs.sqlite3`)
+  - `OPTIMIZATION_PERSIST_ROWS_LIMIT` (default `5000`)
 
 ## Optimization Request Example
 

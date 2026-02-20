@@ -93,6 +93,10 @@ class OptimizationConfig(BaseModel):
     random_seed: Optional[int] = Field(None, ge=0)
     resume_study: bool = False
     resume_study_key: Optional[str] = None
+    bayesian_adaptive_fallback_enabled: bool = True
+    bayesian_adaptive_slowdown_factor: float = Field(1.8, ge=1.1, le=10.0)
+    bayesian_adaptive_window_batches: int = Field(4, ge=2, le=20)
+    bayesian_adaptive_min_trials_after_warmup: int = Field(64, ge=1, le=200_000)
 
     enable_early_pruning: bool = True
     drawdown_prune_multiplier: float = Field(1.5, ge=1.0, le=10.0)
@@ -198,6 +202,7 @@ class OptimizationJobStatus(str, Enum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 class OptimizationJobMeta(BaseModel):
@@ -223,6 +228,11 @@ class OptimizationStartResponse(BaseModel):
     total_combinations: int
 
 
+class OptimizationProgressResponse(BaseModel):
+    job: OptimizationJobMeta
+    target: OptimizationTarget
+
+
 class OptimizationStatusResponse(BaseModel):
     job: OptimizationJobMeta
     target: OptimizationTarget
@@ -244,6 +254,26 @@ class OptimizationStatusResponse(BaseModel):
 
     train_window: Optional[TimeWindowInfo] = None
     validation_window: Optional[TimeWindowInfo] = None
+
+
+class OptimizationRowsResponse(BaseModel):
+    job: OptimizationJobMeta
+    target: OptimizationTarget
+    sort_by: str
+    sort_order: SortOrder
+    page: int
+    page_size: int
+    total_results: int
+    rows: List[OptimizationResultRow]
+    best_row: Optional[OptimizationResultRow] = None
+    best_validation_row: Optional[OptimizationResultRow] = None
+
+
+class OptimizationHeatmapResponse(BaseModel):
+    job: OptimizationJobMeta
+    target: OptimizationTarget
+    heatmap: List[HeatmapCell] = []
+    best_row: Optional[OptimizationResultRow] = None
 
 
 class OptimizationResultBundle(BaseModel):

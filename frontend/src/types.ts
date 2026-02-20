@@ -13,8 +13,16 @@ export interface StrategyConfig {
   use_base_position: boolean;
   reopen_after_stop: boolean;
   fee_rate: number;
+  maker_fee_rate?: number | null;
+  taker_fee_rate?: number | null;
   slippage: number;
   maintenance_margin_rate: number;
+  funding_rate_per_8h?: number;
+  funding_interval_hours?: number;
+  use_mark_price_for_liquidation?: boolean;
+  price_tick_size?: number;
+  quantity_step_size?: number;
+  min_notional?: number;
 }
 
 export interface DataConfig {
@@ -84,9 +92,39 @@ export interface BacktestSummary {
   total_closed_trades: number;
   status: string;
   fees_paid: number;
+  funding_paid: number;
   use_base_position: boolean;
   base_grid_count: number;
   initial_position_size: number;
+}
+
+export type AnalysisRiskLevel = "low" | "medium" | "high";
+export type StructureDependency = "range" | "mixed" | "trend_sensitive";
+
+export interface StrategyAnalysis {
+  risk_level: AnalysisRiskLevel;
+  structure_dependency: StructureDependency;
+  overfitting_flag: boolean;
+  validation_degradation_pct: number;
+  liquidation_risk: AnalysisRiskLevel;
+  stability_score: number;
+  diagnosis_tags: string[];
+  ai_explanation: string | null;
+}
+
+export interface StrategyScoring {
+  profit_score: number;
+  risk_score: number;
+  stability_score: number;
+  robustness_score: number;
+  behavior_score: number;
+  final_score: number;
+  grade: "A" | "B" | "C" | "D" | "E";
+  profit_reasons?: string[];
+  risk_reasons?: string[];
+  stability_reasons?: string[];
+  robustness_reasons?: string[];
+  behavior_reasons?: string[];
 }
 
 export interface BacktestResponse {
@@ -100,6 +138,45 @@ export interface BacktestResponse {
   liquidation_price_curve: CurvePoint[];
   trades: TradeEvent[];
   events: EventLog[];
+  analysis?: StrategyAnalysis | null;
+  scoring?: StrategyScoring | null;
+}
+
+export type BacktestJobStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
+
+export interface BacktestJobMeta {
+  job_id: string;
+  status: BacktestJobStatus;
+  created_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  progress: number;
+  message?: string | null;
+  error?: string | null;
+}
+
+export interface BacktestStartResponse {
+  job_id: string;
+  status: BacktestJobStatus;
+}
+
+export interface BacktestStatusResponse {
+  job: BacktestJobMeta;
+  result: BacktestResponse | null;
+}
+
+export interface MarketParamsResponse {
+  source: DataSource;
+  symbol: string;
+  maker_fee_rate: number;
+  taker_fee_rate: number;
+  funding_rate_per_8h: number;
+  funding_interval_hours: number;
+  price_tick_size: number;
+  quantity_step_size: number;
+  min_notional: number;
+  fetched_at: string;
+  note: string | null;
 }
 
 export type OptimizationTarget =
@@ -112,7 +189,7 @@ export type OptimizationMode = "grid" | "bayesian" | "random_pruned";
 export type AnchorMode = "BACKTEST_START_PRICE" | "BACKTEST_AVG_PRICE" | "CURRENT_PRICE" | "CUSTOM_PRICE";
 
 export type SortOrder = "desc" | "asc";
-export type OptimizationJobStatus = "pending" | "running" | "completed" | "failed";
+export type OptimizationJobStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
 
 export interface SweepRange {
   enabled: boolean;
@@ -148,6 +225,10 @@ export interface OptimizationConfig {
   random_seed?: number | null;
   resume_study: boolean;
   resume_study_key?: string | null;
+  bayesian_adaptive_fallback_enabled: boolean;
+  bayesian_adaptive_slowdown_factor: number;
+  bayesian_adaptive_window_batches: number;
+  bayesian_adaptive_min_trials_after_warmup: number;
   enable_early_pruning: boolean;
   drawdown_prune_multiplier: number;
   enable_profit_pruning: boolean;
@@ -251,6 +332,11 @@ export interface OptimizationStartResponse {
   total_combinations: number;
 }
 
+export interface OptimizationProgressResponse {
+  job: OptimizationJobMeta;
+  target: OptimizationTarget;
+}
+
 export interface OptimizationStatusResponse {
   job: OptimizationJobMeta;
   target: OptimizationTarget;
@@ -268,4 +354,24 @@ export interface OptimizationStatusResponse {
   heatmap: OptimizationHeatmapCell[];
   train_window: OptimizationTimeWindow | null;
   validation_window: OptimizationTimeWindow | null;
+}
+
+export interface OptimizationRowsResponse {
+  job: OptimizationJobMeta;
+  target: OptimizationTarget;
+  sort_by: string;
+  sort_order: SortOrder;
+  page: number;
+  page_size: number;
+  total_results: number;
+  rows: OptimizationRow[];
+  best_row: OptimizationRow | null;
+  best_validation_row: OptimizationRow | null;
+}
+
+export interface OptimizationHeatmapResponse {
+  job: OptimizationJobMeta;
+  target: OptimizationTarget;
+  heatmap: OptimizationHeatmapCell[];
+  best_row: OptimizationRow | null;
 }

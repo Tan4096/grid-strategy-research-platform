@@ -1,52 +1,44 @@
-import { ChangeEvent, useEffect, useState } from "react";
-import { BacktestRequest, DataSource, GridSide, Interval, StrategyConfig } from "../types";
+import { ChangeEvent, useEffect, useRef, useState } from "react";
+import { STORAGE_KEYS, readPlain, writePlain } from "../lib/storage";
+import { BacktestRequest, OptimizationConfig, StrategyConfig } from "../types";
+import DataImportSection from "./parameter/DataImportSection";
+import OptimizationTemplateSection from "./parameter/OptimizationTemplateSection";
+import PositionSection from "./parameter/PositionSection";
+import RangeSection from "./parameter/RangeSection";
+import RiskSection from "./parameter/RiskSection";
+import StrategyTemplateSection from "./parameter/StrategyTemplateSection";
+import TimeRangeSection from "./parameter/TimeRangeSection";
+import TradingEnvironmentSection from "./parameter/TradingEnvironmentSection";
+import { inputClass } from "./parameter/shared";
 
 interface Props {
+  mode: "backtest" | "optimize";
   request: BacktestRequest;
   onChange: (next: BacktestRequest) => void;
+  optimizationConfig: OptimizationConfig;
+  onOptimizationConfigChange: (next: OptimizationConfig) => void;
   onCsvLoaded: (filename: string, content: string) => void;
   onRun: () => void;
   loading: boolean;
   csvFileName: string | null;
+  marketParamsSyncing: boolean;
+  marketParamsNote: string | null;
+  onSyncMarketParams: () => void;
   runLabel?: string;
   runningLabel?: string;
+  hideRunButton?: boolean;
 }
-
-function labelClass() {
-  return "mb-1 block text-xs uppercase tracking-wide text-slate-400";
-}
-
-function inputClass() {
-  return "w-full rounded-md border border-slate-700 bg-slate-950/70 px-2 py-2 text-sm text-slate-100 outline-none transition focus:border-cyan-400";
-}
-
-const INTERVAL_OPTIONS: Array<{ value: Interval; label: string }> = [
-  { value: "1m", label: "1m" },
-  { value: "3m", label: "3m" },
-  { value: "5m", label: "5m" },
-  { value: "15m", label: "15m" },
-  { value: "30m", label: "30m" },
-  { value: "1h", label: "1H" },
-  { value: "2h", label: "2H" },
-  { value: "4h", label: "4H" },
-  { value: "6h", label: "6H" },
-  { value: "8h", label: "8H" },
-  { value: "12h", label: "12H" },
-  { value: "1d", label: "1D" }
-];
-
-const DATA_SOURCE_OPTIONS: Array<{ value: DataSource; label: string }> = [
-  { value: "binance", label: "Binance Futures API" },
-  { value: "bybit", label: "Bybit API" },
-  { value: "okx", label: "OKX API" },
-  { value: "csv", label: "CSV 上传" }
-];
-
-const SYMBOL_OPTIONS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "HYPEUSDT"] as const;
 
 const BEIJING_TIME_ZONE = "Asia/Shanghai";
 const MINUTE_MS = 60 * 1000;
 const BEIJING_OFFSET_MS = 8 * 60 * 60 * 1000;
+const LEGACY_STRATEGY_TEMPLATES_KEY = "btc-grid-backtest:strategy-templates:v1";
+
+interface StrategyTemplate {
+  id: string;
+  name: string;
+  request: BacktestRequest;
+}
 
 function isoToBeijingMinuteInput(isoValue?: string | null): string {
   if (!isoValue) {
@@ -94,16 +86,56 @@ function nowBeijingIsoMinute(): string {
   return `${y}-${m}-${d}T${h}:${minute}:00+08:00`;
 }
 
+function loadStrategyTemplates(): StrategyTemplate[] {
+  return (
+    readPlain<StrategyTemplate[]>(
+      STORAGE_KEYS.strategyTemplates,
+      (raw) => {
+        if (!Array.isArray(raw)) {
+          return [];
+        }
+        return raw.filter(
+          (item) => item && typeof item === "object" && "id" in item && "name" in item && "request" in item
+        ) as StrategyTemplate[];
+      },
+      [LEGACY_STRATEGY_TEMPLATES_KEY]
+    ) ?? []
+  );
+}
+
+function saveStrategyTemplates(templates: StrategyTemplate[]) {
+  writePlain(STORAGE_KEYS.strategyTemplates, templates);
+}
+
 export default function ParameterForm({
+  mode,
   request,
   onChange,
+  optimizationConfig,
+  onOptimizationConfigChange,
   onCsvLoaded,
   onRun,
   loading,
   csvFileName,
+  marketParamsSyncing,
+  marketParamsNote,
+  onSyncMarketParams,
   runLabel = "开始回测",
-  runningLabel = "回测中..."
+  runningLabel = "回测中...",
+  hideRunButton = false
 }: Props) {
+  const importRef = useRef<HTMLInputElement | null>(null);
+  const [templates, setTemplates] = useState<StrategyTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
+
+  useEffect(() => {
+    const loaded = loadStrategyTemplates();
+    setTemplates(loaded);
+    if (loaded.length > 0) {
+      setSelectedTemplateId(loaded[0].id);
+    }
+  }, []);
+
   const updateStrategy = <K extends keyof StrategyConfig>(key: K, value: StrategyConfig[K]) => {
     onChange({
       ...request,
@@ -134,6 +166,110 @@ export default function ParameterForm({
     onCsvLoaded(file.name, content);
   };
 
+  const updateTemplates = (next: StrategyTemplate[]) => {
+    setTemplates(next);
+    saveStrategyTemplates(next);
+    if (next.length === 0) {
+      setSelectedTemplateId("");
+      return;
+    }
+    if (!next.some((item) => item.id === selectedTemplateId)) {
+      setSelectedTemplateId(next[0].id);
+    }
+  };
+
+  const handleSaveTemplate = () => {
+    const name = window.prompt("模板名称", request.data.symbol || "我的模板");
+    if (!name || !name.trim()) {
+      return;
+    }
+    const template: StrategyTemplate = {
+      id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+      name: name.trim(),
+      request: {
+        strategy: { ...request.strategy },
+        data: {
+          ...request.data,
+          csv_content: null
+        }
+      }
+    };
+    updateTemplates([template, ...templates]);
+    setSelectedTemplateId(template.id);
+  };
+
+  const handleApplyTemplate = () => {
+    const selected = templates.find((item) => item.id === selectedTemplateId);
+    if (!selected) {
+      return;
+    }
+    onChange({
+      strategy: { ...selected.request.strategy },
+      data: {
+        ...selected.request.data,
+        csv_content: null
+      }
+    });
+  };
+
+  const handleDeleteTemplate = () => {
+    if (!selectedTemplateId) {
+      return;
+    }
+    updateTemplates(templates.filter((item) => item.id !== selectedTemplateId));
+  };
+
+  const handleExportTemplate = () => {
+    const selected = templates.find((item) => item.id === selectedTemplateId);
+    const payload = selected ?? templates;
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const ts = new Date().toISOString().replace(/[:.]/g, "-");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `grid-template-${ts}.json`);
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportTemplate = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+    try {
+      const content = await file.text();
+      const parsed = JSON.parse(content) as unknown;
+      const normalized: StrategyTemplate[] = [];
+      if (Array.isArray(parsed)) {
+        parsed.forEach((item) => {
+          if (item && typeof item === "object" && "name" in item && "request" in item) {
+            normalized.push({
+              id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+              name: String((item as { name: unknown }).name || "导入模板"),
+              request: (item as { request: BacktestRequest }).request
+            });
+          }
+        });
+      } else if (parsed && typeof parsed === "object" && "strategy" in parsed && "data" in parsed) {
+        normalized.push({
+          id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+          name: "导入模板",
+          request: parsed as BacktestRequest
+        });
+      }
+      if (normalized.length === 0) {
+        return;
+      }
+      updateTemplates([...normalized, ...templates]);
+      setSelectedTemplateId(normalized[0].id);
+    } catch {
+      // ignore malformed json
+    } finally {
+      event.target.value = "";
+    }
+  };
+
   const startTimeInputValue = isoToBeijingMinuteInput(request.data.start_time ?? null);
   const useNowEndTime = !request.data.end_time;
   const [nowEndPreview, setNowEndPreview] = useState<string>(() => nowBeijingIsoMinute());
@@ -155,10 +291,6 @@ export default function ParameterForm({
   const endTimeInputValue = isoToBeijingMinuteInput(
     useNowEndTime ? nowEndPreview : request.data.end_time ?? null
   );
-  const normalizedSymbol = request.data.symbol.toUpperCase();
-  const symbolOptions = SYMBOL_OPTIONS.includes(normalizedSymbol as (typeof SYMBOL_OPTIONS)[number])
-    ? [...SYMBOL_OPTIONS]
-    : [normalizedSymbol, ...SYMBOL_OPTIONS];
 
   return (
     <aside className="card fade-up w-full space-y-4 p-4 md:sticky md:top-4 md:max-h-[calc(100vh-2rem)] md:overflow-y-auto">
@@ -167,246 +299,53 @@ export default function ParameterForm({
         <p className="mt-1 text-xs text-slate-400">参数可调 · 逐K线模拟 · 风险可视化</p>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className={labelClass()}>方向</label>
-          <select
-            className={inputClass()}
-            value={request.strategy.side}
-            onChange={(e) => updateStrategy("side", e.target.value as GridSide)}
-          >
-            <option value="long">做多网格</option>
-            <option value="short">做空网格</option>
-          </select>
-        </div>
+      {!hideRunButton && (
+        <button
+          className="w-full rounded-md border border-slate-500 bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-900 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+          onClick={onRun}
+          disabled={loading}
+          type="button"
+        >
+          {loading ? runningLabel : runLabel}
+        </button>
+      )}
 
-        <div>
-          <label className={labelClass()}>周期</label>
-          <select
-            className={inputClass()}
-            value={request.data.interval}
-            onChange={(e) => updateData("interval", e.target.value as Interval)}
-          >
-            {INTERVAL_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
+      {mode === "backtest" ? (
+        <StrategyTemplateSection
+          templates={templates}
+          selectedTemplateId={selectedTemplateId}
+          inputClassName={inputClass()}
+          importRef={importRef}
+          onSelectedTemplateIdChange={setSelectedTemplateId}
+          onSaveTemplate={handleSaveTemplate}
+          onApplyTemplate={handleApplyTemplate}
+          onExportTemplate={handleExportTemplate}
+          onDeleteTemplate={handleDeleteTemplate}
+          onImportTemplate={handleImportTemplate}
+        />
+      ) : (
+        <OptimizationTemplateSection config={optimizationConfig} onChange={onOptimizationConfigChange} />
+      )}
 
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className={labelClass()}>LOWER</label>
-          <input
-            className={inputClass()}
-            type="number"
-            value={request.strategy.lower}
-            onChange={(e) => updateStrategy("lower", Number(e.target.value))}
-          />
-        </div>
-        <div>
-          <label className={labelClass()}>UPPER</label>
-          <input
-            className={inputClass()}
-            type="number"
-            value={request.strategy.upper}
-            onChange={(e) => updateStrategy("upper", Number(e.target.value))}
-          />
-        </div>
-        <div>
-          <label className={labelClass()}>GRIDS</label>
-          <input
-            className={inputClass()}
-            type="number"
-            min={2}
-            value={request.strategy.grids}
-            onChange={(e) => updateStrategy("grids", Number(e.target.value))}
-          />
-        </div>
-        <div>
-          <label className={labelClass()}>LEVERAGE</label>
-          <input
-            className={inputClass()}
-            type="number"
-            min={1}
-            step={0.1}
-            value={request.strategy.leverage}
-            onChange={(e) => updateStrategy("leverage", Number(e.target.value))}
-          />
-        </div>
-        <div>
-          <label className={labelClass()}>MARGIN (USDT)</label>
-          <input
-            className={inputClass()}
-            type="number"
-            min={1}
-            step={10}
-            value={request.strategy.margin}
-            onChange={(e) => updateStrategy("margin", Number(e.target.value))}
-          />
-        </div>
-        <div>
-          <label className={labelClass()}>STOP_LOSS</label>
-          <input
-            className={inputClass()}
-            type="number"
-            min={1}
-            value={request.strategy.stop_loss}
-            onChange={(e) => updateStrategy("stop_loss", Number(e.target.value))}
-          />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className={labelClass()}>手续费率 (%)</label>
-          <input
-            className={inputClass()}
-            type="number"
-            step={0.001}
-            value={request.strategy.fee_rate * 100}
-            onChange={(e) => updateStrategy("fee_rate", Number(e.target.value) / 100)}
-          />
-        </div>
-        <div>
-          <label className={labelClass()}>滑点 (%)</label>
-          <input
-            className={inputClass()}
-            type="number"
-            step={0.001}
-            value={request.strategy.slippage * 100}
-            onChange={(e) => updateStrategy("slippage", Number(e.target.value) / 100)}
-          />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className={labelClass()}>开底仓</label>
-          <label className="flex h-[42px] items-center gap-2 rounded-md border border-slate-700 bg-slate-950/70 px-3 text-sm text-slate-200">
-            <input
-              type="checkbox"
-              checked={request.strategy.use_base_position}
-              onChange={(e) => updateStrategy("use_base_position", e.target.checked)}
-            />
-            启用
-          </label>
-        </div>
-        <div>
-          <label className={labelClass()}>维持保证金率 (%)</label>
-          <input
-            className={inputClass()}
-            type="number"
-            step={0.1}
-            value={request.strategy.maintenance_margin_rate * 100}
-            onChange={(e) => updateStrategy("maintenance_margin_rate", Number(e.target.value) / 100)}
-          />
-        </div>
-        <div>
-          <label className={labelClass()}>止损后重开</label>
-          <select
-            className={inputClass()}
-            value={request.strategy.reopen_after_stop ? "true" : "false"}
-            onChange={(e) => updateStrategy("reopen_after_stop", e.target.value === "true")}
-          >
-            <option value="true">True</option>
-            <option value="false">False</option>
-          </select>
-        </div>
-      </div>
-
-      <div className="space-y-3 border-t border-slate-700/60 pt-3">
-        <div>
-          <label className={labelClass()}>数据源</label>
-          <select
-            className={inputClass()}
-            value={request.data.source}
-            onChange={(e) => updateData("source", e.target.value as DataSource)}
-          >
-            {DATA_SOURCE_OPTIONS.map((sourceOpt) => (
-              <option key={sourceOpt.value} value={sourceOpt.value}>
-                {sourceOpt.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className={labelClass()}>交易对</label>
-          <select
-            className={inputClass()}
-            value={request.data.symbol}
-            onChange={(e) => updateData("symbol", e.target.value.toUpperCase())}
-          >
-            {symbolOptions.map((symbol) => (
-              <option key={symbol} value={symbol}>
-                {symbol}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className={labelClass()}>开始时间 (UTC+8)</label>
-            <input
-              className={inputClass()}
-              type="datetime-local"
-              step={60}
-              value={startTimeInputValue}
-              onChange={(e) => updateData("start_time", beijingMinuteInputToIso(e.target.value))}
-            />
-          </div>
-          <div>
-            <label className={labelClass()}>结束时间 (UTC+8)</label>
-            <div className="space-y-2">
-              <input
-                className={inputClass()}
-                type="datetime-local"
-                step={60}
-                value={endTimeInputValue}
-                disabled={useNowEndTime}
-                onChange={(e) => updateData("end_time", beijingMinuteInputToIso(e.target.value))}
-              />
-              <label className="flex items-center gap-2 text-xs text-slate-300">
-                <input
-                  type="checkbox"
-                  checked={useNowEndTime}
-                  onChange={(e) => {
-                    if (e.target.checked) {
-                      updateData("end_time", null);
-                      return;
-                    }
-                    updateData("end_time", nowBeijingIsoMinute());
-                  }}
-                />
-                到 Now（当前北京时间，精确到分钟）
-              </label>
-            </div>
-          </div>
-        </div>
-
-        <p className="text-xs text-slate-400">默认时间基准为北京时间 (UTC+8)，可勾选“到 Now”自动使用当前分钟。</p>
-
-        <div>
-          <label className={labelClass()}>CSV 文件（可选）</label>
-          <input className={inputClass()} type="file" accept=".csv" onChange={handleCsvUpload} />
-          <p className="mt-1 text-xs text-slate-400">
-            {csvFileName ? `已选择: ${csvFileName}` : "支持列名: timestamp/open/high/low/close/volume"}
-          </p>
-        </div>
-      </div>
-
-      <button
-        className="w-full rounded-md bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
-        onClick={onRun}
-        disabled={loading}
-        type="button"
-      >
-        {loading ? runningLabel : runLabel}
-      </button>
+      <RangeSection request={request} updateStrategy={updateStrategy} updateData={updateData} />
+      <PositionSection request={request} updateStrategy={updateStrategy} />
+      <RiskSection request={request} updateStrategy={updateStrategy} />
+      <TradingEnvironmentSection
+        request={request}
+        updateData={updateData}
+        marketParamsSyncing={marketParamsSyncing}
+        marketParamsNote={marketParamsNote}
+        onSyncMarketParams={onSyncMarketParams}
+      />
+      <TimeRangeSection
+        startTimeInputValue={startTimeInputValue}
+        endTimeInputValue={endTimeInputValue}
+        useNowEndTime={useNowEndTime}
+        updateData={updateData}
+        beijingMinuteInputToIso={beijingMinuteInputToIso}
+        nowBeijingIsoMinute={nowBeijingIsoMinute}
+      />
+      <DataImportSection csvFileName={csvFileName} onCsvUpload={handleCsvUpload} />
     </aside>
   );
 }

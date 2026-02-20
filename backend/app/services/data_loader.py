@@ -1,17 +1,25 @@
 from __future__ import annotations
 
+import os
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 from io import StringIO
 from typing import Optional
 
 import pandas as pd
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from app.core.schemas import Candle, DataConfig, DataSource, Interval
 
 BINANCE_FUTURES_KLINES = "https://fapi.binance.com/fapi/v1/klines"
+BINANCE_FUNDING_RATE = "https://fapi.binance.com/fapi/v1/fundingRate"
 BYBIT_LINEAR_KLINES = "https://api.bybit.com/v5/market/kline"
+BYBIT_FUNDING_HISTORY = "https://api.bybit.com/v5/market/funding/history"
 OKX_HISTORY_CANDLES = "https://www.okx.com/api/v5/market/history-candles"
+OKX_FUNDING_HISTORY = "https://www.okx.com/api/v5/public/funding-rate-history"
 BEIJING_TZ = timezone(timedelta(hours=8))
 
 INTERVAL_TO_MS = {
@@ -105,6 +113,94 @@ OKX_BAR_TO_MS = {
 
 class DataLoadError(RuntimeError):
     pass
+
+
+FundingRatePoint = tuple[datetime, float]
+
+
+def _build_http_session() -> requests.Session:
+    session = requests.Session()
+    retry = Retry(
+        total=4,
+        connect=4,
+        read=4,
+        backoff_factor=0.4,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=frozenset(["GET"]),
+        respect_retry_after_header=True,
+    )
+    adapter = HTTPAdapter(max_retries=retry, pool_connections=8, pool_maxsize=32)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
+
+_HTTP_SESSION = _build_http_session()
+_DATA_CACHE_TTL_SECONDS = max(5, int(os.getenv("DATA_CACHE_TTL_SECONDS", "90")))
+_DATA_CACHE_MAX_ITEMS = max(16, int(os.getenv("DATA_CACHE_MAX_ITEMS", "256")))
+_CANDLE_CACHE: dict[tuple[str, ...], tuple[float, list[Candle]]] = {}
+_FUNDING_CACHE: dict[tuple[str, ...], tuple[float, list[FundingRatePoint]]] = {}
+_DATA_CACHE_LOCK = threading.Lock()
+
+
+def _utc_minute_iso(value: datetime) -> str:
+    if value.tzinfo is None:
+        normalized = value.replace(tzinfo=timezone.utc)
+    else:
+        normalized = value.astimezone(timezone.utc)
+    return normalized.replace(second=0, microsecond=0).isoformat()
+
+
+def _build_data_cache_key(data_cfg: DataConfig, start_utc: datetime, end_utc: datetime, *, kind: str) -> tuple[str, ...]:
+    return (
+        kind,
+        data_cfg.source.value,
+        data_cfg.symbol.upper(),
+        data_cfg.interval.value,
+        _utc_minute_iso(start_utc),
+        _utc_minute_iso(end_utc),
+    )
+
+
+def _get_cached_data(
+    cache: dict[tuple[str, ...], tuple[float, object]],
+    key: tuple[str, ...],
+) -> object | None:
+    now = time.monotonic()
+    with _DATA_CACHE_LOCK:
+        entry = cache.get(key)
+        if entry is None:
+            return None
+        cached_at, payload = entry
+        if (now - cached_at) > _DATA_CACHE_TTL_SECONDS:
+            cache.pop(key, None)
+            return None
+        return payload
+
+
+def _set_cached_data(
+    cache: dict[tuple[str, ...], tuple[float, object]],
+    key: tuple[str, ...],
+    payload: object,
+) -> None:
+    now = time.monotonic()
+    with _DATA_CACHE_LOCK:
+        cache[key] = (now, payload)
+        overflow = len(cache) - _DATA_CACHE_MAX_ITEMS
+        if overflow <= 0:
+            return
+        oldest_keys = [item[0] for item in sorted(cache.items(), key=lambda item: item[1][0])[:overflow]]
+        for stale_key in oldest_keys:
+            cache.pop(stale_key, None)
+
+
+def _request_json(url: str, *, params: dict[str, object], provider: str, timeout: int = 15) -> object:
+    try:
+        response = _HTTP_SESSION.get(url, params=params, timeout=timeout)
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        raise DataLoadError(f"failed to fetch {provider} data: {exc}") from exc
+    return _parse_response_json(response, provider)
 
 
 def _resolve_time_window(data_cfg: DataConfig) -> tuple[datetime, datetime]:
@@ -239,8 +335,14 @@ def _parse_response_json(
         raise DataLoadError(f"invalid {provider} response payload") from exc
 
 
-def load_from_binance(data_cfg: DataConfig) -> list[Candle]:
-    start_utc, end_utc = _resolve_time_window(data_cfg)
+def load_from_binance(
+    data_cfg: DataConfig,
+    *,
+    start_utc: Optional[datetime] = None,
+    end_utc: Optional[datetime] = None,
+) -> list[Candle]:
+    if start_utc is None or end_utc is None:
+        start_utc, end_utc = _resolve_time_window(data_cfg)
     interval_ms = INTERVAL_TO_MS[data_cfg.interval.value]
     current_start_ms = int(start_utc.timestamp() * 1000)
     end_ms = int(end_utc.timestamp() * 1000)
@@ -256,11 +358,9 @@ def load_from_binance(data_cfg: DataConfig) -> list[Candle]:
         }
 
         try:
-            response = requests.get(BINANCE_FUTURES_KLINES, params=params, timeout=15)
-            response.raise_for_status()
-            payload = response.json()
-        except requests.RequestException as exc:
-            raise DataLoadError(f"failed to fetch Binance data: {exc}") from exc
+            payload = _request_json(BINANCE_FUTURES_KLINES, params=params, provider="Binance", timeout=15)
+        except DataLoadError:
+            raise
 
         if not isinstance(payload, list):
             raise DataLoadError("invalid Binance kline response")
@@ -299,8 +399,14 @@ def load_from_binance(data_cfg: DataConfig) -> list[Candle]:
     return _candles_from_df(normalized)
 
 
-def load_from_bybit(data_cfg: DataConfig) -> list[Candle]:
-    start_utc, end_utc = _resolve_time_window(data_cfg)
+def load_from_bybit(
+    data_cfg: DataConfig,
+    *,
+    start_utc: Optional[datetime] = None,
+    end_utc: Optional[datetime] = None,
+) -> list[Candle]:
+    if start_utc is None or end_utc is None:
+        start_utc, end_utc = _resolve_time_window(data_cfg)
     interval_token, needs_resample = BYBIT_INTERVAL_MAP[data_cfg.interval]
     fetch_interval_ms = BYBIT_INTERVAL_TO_MS[interval_token]
     start_ms = int(start_utc.timestamp() * 1000)
@@ -316,11 +422,9 @@ def load_from_bybit(data_cfg: DataConfig) -> list[Candle]:
             "limit": 1000,
         }
         try:
-            response = requests.get(BYBIT_LINEAR_KLINES, params=params, timeout=15)
-            response.raise_for_status()
-            payload = _parse_response_json(response, "Bybit")
-        except requests.RequestException as exc:
-            raise DataLoadError(f"failed to fetch Bybit data: {exc}") from exc
+            payload = _request_json(BYBIT_LINEAR_KLINES, params=params, provider="Bybit", timeout=15)
+        except DataLoadError:
+            raise
 
         if not isinstance(payload, dict) or int(payload.get("retCode", -1)) != 0:
             message = payload.get("retMsg") if isinstance(payload, dict) else "unknown response"
@@ -366,8 +470,14 @@ def load_from_bybit(data_cfg: DataConfig) -> list[Candle]:
     return _candles_from_df(normalized)
 
 
-def load_from_okx(data_cfg: DataConfig) -> list[Candle]:
-    start_utc, end_utc = _resolve_time_window(data_cfg)
+def load_from_okx(
+    data_cfg: DataConfig,
+    *,
+    start_utc: Optional[datetime] = None,
+    end_utc: Optional[datetime] = None,
+) -> list[Candle]:
+    if start_utc is None or end_utc is None:
+        start_utc, end_utc = _resolve_time_window(data_cfg)
     bar_token, needs_resample = OKX_BAR_MAP[data_cfg.interval]
     fetch_interval_ms = OKX_BAR_TO_MS[bar_token]
     start_ms = int(start_utc.timestamp() * 1000)
@@ -383,11 +493,9 @@ def load_from_okx(data_cfg: DataConfig) -> list[Candle]:
             "limit": 100,
         }
         try:
-            response = requests.get(OKX_HISTORY_CANDLES, params=params, timeout=15)
-            response.raise_for_status()
-            payload = _parse_response_json(response, "OKX")
-        except requests.RequestException as exc:
-            raise DataLoadError(f"failed to fetch OKX data: {exc}") from exc
+            payload = _request_json(OKX_HISTORY_CANDLES, params=params, provider="OKX", timeout=15)
+        except DataLoadError:
+            raise
 
         if not isinstance(payload, dict) or payload.get("code") != "0":
             message = payload.get("msg") if isinstance(payload, dict) else "unknown response"
@@ -454,7 +562,12 @@ def _rename_csv_columns(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def load_from_csv_content(data_cfg: DataConfig) -> list[Candle]:
+def load_from_csv_content(
+    data_cfg: DataConfig,
+    *,
+    start_utc: Optional[datetime] = None,
+    end_utc: Optional[datetime] = None,
+) -> list[Candle]:
     if not data_cfg.csv_content:
         raise DataLoadError("CSV source selected but csv_content is empty")
 
@@ -465,7 +578,8 @@ def load_from_csv_content(data_cfg: DataConfig) -> list[Candle]:
 
     renamed = _rename_csv_columns(raw_df)
     normalized = _normalize_dataframe(renamed)
-    start_utc, end_utc = _resolve_time_window(data_cfg)
+    if start_utc is None or end_utc is None:
+        start_utc, end_utc = _resolve_time_window(data_cfg)
     filtered = _filter_by_time_range(normalized, start_utc, end_utc)
     interval_df = _resample_interval(filtered, data_cfg.interval)
 
@@ -475,14 +589,216 @@ def load_from_csv_content(data_cfg: DataConfig) -> list[Candle]:
     return _candles_from_df(interval_df)
 
 
-def load_candles(data_cfg: DataConfig) -> list[Candle]:
-    if data_cfg.source == DataSource.BINANCE:
-        return load_from_binance(data_cfg)
-    if data_cfg.source == DataSource.BYBIT:
-        return load_from_bybit(data_cfg)
-    if data_cfg.source == DataSource.OKX:
-        return load_from_okx(data_cfg)
-    if data_cfg.source == DataSource.CSV:
-        return load_from_csv_content(data_cfg)
+def _normalize_funding_points(points: list[FundingRatePoint]) -> list[FundingRatePoint]:
+    if not points:
+        return []
+    by_ts: dict[datetime, float] = {}
+    for ts, rate in points:
+        by_ts[ts] = float(rate)
+    return sorted(by_ts.items(), key=lambda item: item[0])
 
-    raise DataLoadError(f"unsupported data source: {data_cfg.source}")
+
+def _load_binance_funding_rates(data_cfg: DataConfig, start_utc: datetime, end_utc: datetime) -> list[FundingRatePoint]:
+    symbol = data_cfg.symbol.upper()
+    start_ms = int(start_utc.timestamp() * 1000)
+    end_ms = int(end_utc.timestamp() * 1000)
+
+    cursor_ms = start_ms
+    points: list[FundingRatePoint] = []
+    while cursor_ms <= end_ms:
+        payload = _request_json(
+            BINANCE_FUNDING_RATE,
+            params={
+                "symbol": symbol,
+                "startTime": cursor_ms,
+                "endTime": end_ms,
+                "limit": 1000,
+            },
+            provider="Binance funding",
+            timeout=15,
+        )
+        if not isinstance(payload, list):
+            raise DataLoadError("invalid Binance funding response")
+        if not payload:
+            break
+
+        max_ts = cursor_ms
+        for row in payload:
+            if not isinstance(row, dict):
+                continue
+            try:
+                ts_ms = int(row.get("fundingTime"))
+                rate = float(row.get("fundingRate"))
+            except (TypeError, ValueError):
+                continue
+            if ts_ms < start_ms or ts_ms > end_ms:
+                continue
+            points.append((datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc), rate))
+            if ts_ms > max_ts:
+                max_ts = ts_ms
+
+        if max_ts <= cursor_ms:
+            break
+        cursor_ms = max_ts + 1
+        if len(payload) < 1000:
+            break
+
+    return _normalize_funding_points(points)
+
+
+def _load_bybit_funding_rates(data_cfg: DataConfig, start_utc: datetime, end_utc: datetime) -> list[FundingRatePoint]:
+    symbol = data_cfg.symbol.upper()
+    start_ms = int(start_utc.timestamp() * 1000)
+    end_ms = int(end_utc.timestamp() * 1000)
+
+    cursor_ms = start_ms
+    points: list[FundingRatePoint] = []
+    while cursor_ms <= end_ms:
+        payload = _request_json(
+            BYBIT_FUNDING_HISTORY,
+            params={
+                "category": "linear",
+                "symbol": symbol,
+                "startTime": cursor_ms,
+                "endTime": end_ms,
+                "limit": 200,
+            },
+            provider="Bybit funding",
+            timeout=15,
+        )
+        if not isinstance(payload, dict) or int(payload.get("retCode", -1)) != 0:
+            message = payload.get("retMsg") if isinstance(payload, dict) else "unknown response"
+            raise DataLoadError(f"Bybit returned funding error: {message}")
+
+        result = payload.get("result", {})
+        rows = result.get("list", []) if isinstance(result, dict) else []
+        if not isinstance(rows, list) or not rows:
+            break
+
+        max_ts = cursor_ms
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            raw_ts = row.get("fundingRateTimestamp") or row.get("fundingTime") or row.get("fundingRateTime")
+            try:
+                ts_ms = int(raw_ts)
+                rate = float(row.get("fundingRate"))
+            except (TypeError, ValueError):
+                continue
+            if ts_ms < start_ms or ts_ms > end_ms:
+                continue
+            points.append((datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc), rate))
+            if ts_ms > max_ts:
+                max_ts = ts_ms
+
+        if max_ts <= cursor_ms:
+            break
+        cursor_ms = max_ts + 1
+        if len(rows) < 200:
+            break
+
+    return _normalize_funding_points(points)
+
+
+def _load_okx_funding_rates(data_cfg: DataConfig, start_utc: datetime, end_utc: datetime) -> list[FundingRatePoint]:
+    inst_id = _okx_inst_id(data_cfg.symbol)
+    start_ms = int(start_utc.timestamp() * 1000)
+    end_ms = int(end_utc.timestamp() * 1000)
+
+    cursor_after_ms = end_ms
+    points: list[FundingRatePoint] = []
+    while cursor_after_ms >= start_ms:
+        payload = _request_json(
+            OKX_FUNDING_HISTORY,
+            params={
+                "instId": inst_id,
+                "after": cursor_after_ms,
+                "limit": 100,
+            },
+            provider="OKX funding",
+            timeout=15,
+        )
+        if not isinstance(payload, dict) or payload.get("code") != "0":
+            message = payload.get("msg") if isinstance(payload, dict) else "unknown response"
+            raise DataLoadError(f"OKX returned funding error: {message}")
+
+        rows = payload.get("data", [])
+        if not isinstance(rows, list) or not rows:
+            break
+
+        min_ts = cursor_after_ms
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            try:
+                ts_ms = int(row.get("fundingTime"))
+                rate = float(row.get("fundingRate"))
+            except (TypeError, ValueError):
+                continue
+            if ts_ms < start_ms or ts_ms > end_ms:
+                continue
+            points.append((datetime.fromtimestamp(ts_ms / 1000.0, tz=timezone.utc), rate))
+            if ts_ms < min_ts:
+                min_ts = ts_ms
+
+        if min_ts >= cursor_after_ms:
+            break
+        cursor_after_ms = min_ts - 1
+        if len(rows) < 100:
+            break
+
+    return _normalize_funding_points(points)
+
+
+def load_funding_rates(data_cfg: DataConfig) -> list[FundingRatePoint]:
+    if data_cfg.source == DataSource.CSV:
+        return []
+
+    start_utc, end_utc = _resolve_time_window(data_cfg)
+    cache_key = _build_data_cache_key(data_cfg, start_utc, end_utc, kind="funding")
+    cached = _get_cached_data(_FUNDING_CACHE, cache_key)
+    if cached is not None:
+        return cached  # type: ignore[return-value]
+
+    points: list[FundingRatePoint] = []
+    try:
+        if data_cfg.source == DataSource.BINANCE:
+            points = _load_binance_funding_rates(data_cfg, start_utc, end_utc)
+        elif data_cfg.source == DataSource.BYBIT:
+            points = _load_bybit_funding_rates(data_cfg, start_utc, end_utc)
+        elif data_cfg.source == DataSource.OKX:
+            points = _load_okx_funding_rates(data_cfg, start_utc, end_utc)
+    except DataLoadError:
+        # Funding fetch errors should not block backtest; engine will fallback to static funding rate.
+        points = []
+    except Exception:
+        points = []
+
+    _set_cached_data(_FUNDING_CACHE, cache_key, points)
+    return points
+
+
+def load_candles(data_cfg: DataConfig) -> list[Candle]:
+    start_utc, end_utc = _resolve_time_window(data_cfg)
+    if data_cfg.source != DataSource.CSV:
+        cache_key = _build_data_cache_key(data_cfg, start_utc, end_utc, kind="candles")
+        cached = _get_cached_data(_CANDLE_CACHE, cache_key)
+        if cached is not None:
+            return cached  # type: ignore[return-value]
+
+    candles: list[Candle]
+    if data_cfg.source == DataSource.BINANCE:
+        candles = load_from_binance(data_cfg, start_utc=start_utc, end_utc=end_utc)
+    elif data_cfg.source == DataSource.BYBIT:
+        candles = load_from_bybit(data_cfg, start_utc=start_utc, end_utc=end_utc)
+    elif data_cfg.source == DataSource.OKX:
+        candles = load_from_okx(data_cfg, start_utc=start_utc, end_utc=end_utc)
+    elif data_cfg.source == DataSource.CSV:
+        candles = load_from_csv_content(data_cfg, start_utc=start_utc, end_utc=end_utc)
+    else:
+        raise DataLoadError(f"unsupported data source: {data_cfg.source}")
+
+    if data_cfg.source != DataSource.CSV:
+        cache_key = _build_data_cache_key(data_cfg, start_utc, end_utc, kind="candles")
+        _set_cached_data(_CANDLE_CACHE, cache_key, candles)
+    return candles

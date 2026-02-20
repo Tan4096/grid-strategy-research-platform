@@ -5,17 +5,25 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
 from multiprocessing import get_context
+from multiprocessing.pool import Pool
+from types import SimpleNamespace
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
 from app.core.optimization_schemas import OptimizationTarget
-from app.core.schemas import Candle, GridSide
+from app.core.schemas import Candle, GridSide, StrategyConfig
 from app.optimizer.scoring import compute_return_drawdown_ratio, compute_score, compute_sharpe_ratio_from_values
 from app.services.backtest_engine import run_backtest_for_optimization
 
 _WORKER_CANDLES: List[Candle] = []
+_WORKER_FUNDING_RATES: List[tuple[datetime, float]] = []
 _WORKER_INTERVAL_VALUE: str = "1h"
 _WORKER_TARGET: OptimizationTarget = OptimizationTarget.RETURN_DRAWDOWN_RATIO
 _WORKER_CUSTOM_SCORE_EXPR: Optional[str] = None
+_STRATEGY_DEFAULTS: Dict[str, Any] = {
+    name: field.default
+    for name, field in StrategyConfig.model_fields.items()
+    if not field.is_required()
+}
 
 
 @dataclass
@@ -40,17 +48,26 @@ class _StrategyRuntime:
     use_base_position: bool
     reopen_after_stop: bool
     fee_rate: float
+    maker_fee_rate: Optional[float]
+    taker_fee_rate: Optional[float]
     slippage: float
     maintenance_margin_rate: float
+    funding_rate_per_8h: float
+    funding_interval_hours: int
+    use_mark_price_for_liquidation: bool
+    price_tick_size: float
+    quantity_step_size: float
+    min_notional: float
 
 
 def _init_worker(
     candles_payload: List[Dict[str, Any]],
+    funding_payload: Optional[List[Dict[str, Any]]],
     interval_value: str,
     target_value: str,
     custom_expr: Optional[str],
 ) -> None:
-    global _WORKER_CANDLES, _WORKER_INTERVAL_VALUE, _WORKER_TARGET, _WORKER_CUSTOM_SCORE_EXPR
+    global _WORKER_CANDLES, _WORKER_FUNDING_RATES, _WORKER_INTERVAL_VALUE, _WORKER_TARGET, _WORKER_CUSTOM_SCORE_EXPR
 
     _WORKER_CANDLES = [
         _CandleRuntime(
@@ -63,6 +80,10 @@ def _init_worker(
         )
         for row in candles_payload
     ]
+    _WORKER_FUNDING_RATES = [
+        (datetime.fromisoformat(row["timestamp"]), float(row["rate"]))
+        for row in (funding_payload or [])
+    ]
     _WORKER_INTERVAL_VALUE = interval_value
     _WORKER_TARGET = OptimizationTarget(target_value)
     _WORKER_CUSTOM_SCORE_EXPR = custom_expr
@@ -71,19 +92,46 @@ def _init_worker(
 def _strategy_from_payload(strategy_dict: Dict[str, Any]) -> _StrategyRuntime:
     side_raw = strategy_dict["side"]
     side = side_raw if isinstance(side_raw, GridSide) else GridSide(str(side_raw))
+    normalized: Dict[str, Any] = dict(_STRATEGY_DEFAULTS)
+    normalized.update(strategy_dict)
+    maker_fee_raw = normalized.get("maker_fee_rate")
+    taker_fee_raw = normalized.get("taker_fee_rate")
+    normalized["side"] = side
+    normalized["maker_fee_rate"] = None if maker_fee_raw is None else float(maker_fee_raw)
+    normalized["taker_fee_rate"] = None if taker_fee_raw is None else float(taker_fee_raw)
+    normalized["fee_rate"] = float(normalized.get("fee_rate", 0.0))
+    normalized["slippage"] = float(normalized.get("slippage", 0.0))
+    normalized["maintenance_margin_rate"] = float(normalized.get("maintenance_margin_rate", 0.005))
+    normalized["funding_rate_per_8h"] = float(normalized.get("funding_rate_per_8h", 0.0))
+    normalized["funding_interval_hours"] = int(normalized.get("funding_interval_hours", 8))
+    normalized["use_mark_price_for_liquidation"] = bool(normalized.get("use_mark_price_for_liquidation", False))
+    normalized["price_tick_size"] = float(normalized.get("price_tick_size", 0.0))
+    normalized["quantity_step_size"] = float(normalized.get("quantity_step_size", 0.0))
+    normalized["min_notional"] = float(normalized.get("min_notional", 0.0))
+    normalized["use_base_position"] = bool(normalized.get("use_base_position", False))
+    normalized["reopen_after_stop"] = bool(normalized.get("reopen_after_stop", True))
+
     return _StrategyRuntime(
         side=side,
-        lower=float(strategy_dict["lower"]),
-        upper=float(strategy_dict["upper"]),
-        grids=int(strategy_dict["grids"]),
-        leverage=float(strategy_dict["leverage"]),
-        margin=float(strategy_dict["margin"]),
-        stop_loss=float(strategy_dict["stop_loss"]),
-        use_base_position=bool(strategy_dict.get("use_base_position", False)),
-        reopen_after_stop=bool(strategy_dict.get("reopen_after_stop", True)),
-        fee_rate=float(strategy_dict.get("fee_rate", 0.0)),
-        slippage=float(strategy_dict.get("slippage", 0.0)),
-        maintenance_margin_rate=float(strategy_dict.get("maintenance_margin_rate", 0.005)),
+        lower=float(normalized["lower"]),
+        upper=float(normalized["upper"]),
+        grids=int(normalized["grids"]),
+        leverage=float(normalized["leverage"]),
+        margin=float(normalized["margin"]),
+        stop_loss=float(normalized["stop_loss"]),
+        use_base_position=bool(normalized["use_base_position"]),
+        reopen_after_stop=bool(normalized["reopen_after_stop"]),
+        fee_rate=float(normalized["fee_rate"]),
+        maker_fee_rate=normalized["maker_fee_rate"],
+        taker_fee_rate=normalized["taker_fee_rate"],
+        slippage=float(normalized["slippage"]),
+        maintenance_margin_rate=float(normalized["maintenance_margin_rate"]),
+        funding_rate_per_8h=float(normalized["funding_rate_per_8h"]),
+        funding_interval_hours=int(normalized["funding_interval_hours"]),
+        use_mark_price_for_liquidation=bool(normalized["use_mark_price_for_liquidation"]),
+        price_tick_size=float(normalized["price_tick_size"]),
+        quantity_step_size=float(normalized["quantity_step_size"]),
+        min_notional=float(normalized["min_notional"]),
     )
 
 
@@ -93,7 +141,17 @@ def _run_single_combination(task: Dict[str, Any]) -> Dict[str, Any]:
 
     try:
         strategy = _strategy_from_payload(strategy_dict)
-        result = run_backtest_for_optimization(_WORKER_CANDLES, strategy)
+        try:
+            result = run_backtest_for_optimization(_WORKER_CANDLES, strategy, funding_rates=_WORKER_FUNDING_RATES)
+        except AttributeError:
+            # Defensive fallback for schema drift between optimization payload
+            # and worker runtime strategy shape.
+            strategy_model = StrategyConfig.model_validate(strategy_dict)
+            payload = strategy_model.model_dump()
+            side_raw = payload["side"]
+            payload["side"] = side_raw if isinstance(side_raw, GridSide) else GridSide(str(side_raw))
+            strategy_ns = SimpleNamespace(**payload)
+            result = run_backtest_for_optimization(_WORKER_CANDLES, strategy_ns, funding_rates=_WORKER_FUNDING_RATES)
 
         sharpe = compute_sharpe_ratio_from_values(result.equity_values, _WORKER_INTERVAL_VALUE)
         total_return = float(result.summary["total_return_usdt"])
@@ -162,21 +220,8 @@ def _multiprocessing_context():
         return get_context()
 
 
-def run_combinations_parallel(
-    candles: List[Candle],
-    tasks: List[Dict[str, Any]],
-    interval_value: str,
-    target: OptimizationTarget,
-    custom_score_expr: Optional[str],
-    max_workers: int,
-    batch_size: int = 300,
-    chunk_size: int = 64,
-    progress_hook: Optional[Callable[[int, int], None]] = None,
-) -> List[Dict[str, Any]]:
-    if not tasks:
-        return []
-
-    candles_payload = [
+def _serialize_candles(candles: List[Candle]) -> List[Dict[str, Any]]:
+    return [
         {
             "timestamp": c.timestamp.isoformat(),
             "open": c.open,
@@ -188,37 +233,143 @@ def run_combinations_parallel(
         for c in candles
     ]
 
-    worker_count = _resolve_worker_count(max_workers)
-    effective_batch_size = max(1, int(batch_size))
-    forced_chunksize = max(1, int(chunk_size))
-    results: List[Dict[str, Any]] = []
-    total = len(tasks)
-    done = 0
 
-    def emit_progress(item: Dict[str, Any]) -> None:
-        nonlocal done
-        results.append(item)
-        done += 1
-        if progress_hook:
-            progress_hook(done, total)
+def _serialize_funding_rates(funding_rates: List[tuple[datetime, float]]) -> List[Dict[str, Any]]:
+    return [
+        {
+            "timestamp": ts.isoformat(),
+            "rate": float(rate),
+        }
+        for ts, rate in funding_rates
+    ]
 
-    try:
-        ctx = _multiprocessing_context()
-        with ctx.Pool(
-            processes=worker_count,
-            initializer=_init_worker,
-            initargs=(candles_payload, interval_value, target.value, custom_score_expr),
-        ) as pool:
+
+class CombinationEvaluator:
+    def __init__(
+        self,
+        *,
+        candles: List[Candle],
+        funding_rates: Optional[List[tuple[datetime, float]]],
+        interval_value: str,
+        target: OptimizationTarget,
+        custom_score_expr: Optional[str],
+        max_workers: int,
+    ) -> None:
+        self._candles_payload = _serialize_candles(candles)
+        self._funding_payload = _serialize_funding_rates(list(funding_rates or []))
+        self._interval_value = interval_value
+        self._target = target
+        self._custom_score_expr = custom_score_expr
+        self._worker_count = _resolve_worker_count(max_workers)
+        self._pool: Optional[Pool] = None
+        self._executor: Optional[ThreadPoolExecutor] = None
+        self._uses_threads = False
+        self._engine = "process"
+
+    def __enter__(self) -> "CombinationEvaluator":
+        try:
+            ctx = _multiprocessing_context()
+            self._pool = ctx.Pool(
+                processes=self._worker_count,
+                initializer=_init_worker,
+                initargs=(
+                    self._candles_payload,
+                    self._funding_payload,
+                    self._interval_value,
+                    self._target.value,
+                    self._custom_score_expr,
+                ),
+            )
+        except (PermissionError, OSError, RuntimeError):
+            # Some restricted environments disallow process semaphore checks.
+            _init_worker(
+                self._candles_payload,
+                self._funding_payload,
+                self._interval_value,
+                self._target.value,
+                self._custom_score_expr,
+            )
+            self._executor = ThreadPoolExecutor(max_workers=self._worker_count)
+            self._uses_threads = True
+            self._engine = "thread"
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        if self._pool is not None:
+            self._pool.close()
+            self._pool.join()
+            self._pool = None
+        if self._executor is not None:
+            self._executor.shutdown(wait=True)
+            self._executor = None
+
+    def run(
+        self,
+        tasks: List[Dict[str, Any]],
+        *,
+        batch_size: int = 300,
+        chunk_size: int = 64,
+        progress_hook: Optional[Callable[[int, int], None]] = None,
+    ) -> List[Dict[str, Any]]:
+        if not tasks:
+            return []
+
+        effective_batch_size = max(1, int(batch_size))
+        forced_chunksize = max(1, int(chunk_size))
+        results: List[Dict[str, Any]] = []
+        total = len(tasks)
+        done = 0
+
+        def emit_progress(item: Dict[str, Any]) -> None:
+            nonlocal done
+            results.append(item)
+            done += 1
+            if progress_hook:
+                progress_hook(done, total)
+
+        if self._uses_threads:
+            if self._executor is None:
+                raise RuntimeError("thread evaluator is not initialized")
             for batch in _iter_batches(tasks, effective_batch_size):
-                step_chunksize = forced_chunksize if chunk_size > 0 else _chunksize(len(batch), worker_count)
-                for item in pool.imap_unordered(_run_single_combination, batch, chunksize=step_chunksize):
+                for item in self._executor.map(_run_single_combination, batch):
                     emit_progress(item)
-    except (PermissionError, OSError, RuntimeError):
-        # Some restricted environments disallow process semaphore checks.
-        _init_worker(candles_payload, interval_value, target.value, custom_score_expr)
-        with ThreadPoolExecutor(max_workers=worker_count) as executor:
-            for batch in _iter_batches(tasks, effective_batch_size):
-                for item in executor.map(_run_single_combination, batch):
-                    emit_progress(item)
+            return results
 
-    return results
+        if self._pool is None:
+            raise RuntimeError("process evaluator is not initialized")
+
+        for batch in _iter_batches(tasks, effective_batch_size):
+            step_chunksize = forced_chunksize if chunk_size > 0 else _chunksize(len(batch), self._worker_count)
+            for item in self._pool.imap_unordered(_run_single_combination, batch, chunksize=step_chunksize):
+                emit_progress(item)
+        return results
+
+    @property
+    def engine(self) -> str:
+        return self._engine
+
+
+def run_combinations_parallel(
+    candles: List[Candle],
+    tasks: List[Dict[str, Any]],
+    funding_rates: Optional[List[tuple[datetime, float]]],
+    interval_value: str,
+    target: OptimizationTarget,
+    custom_score_expr: Optional[str],
+    max_workers: int,
+    batch_size: int = 300,
+    chunk_size: int = 64,
+    progress_hook: Optional[Callable[[int, int], None]] = None,
+) -> List[Dict[str, Any]]:
+    if not tasks:
+        return []
+
+    with CombinationEvaluator(
+        candles=candles,
+        funding_rates=funding_rates,
+        interval_value=interval_value,
+        target=target,
+        custom_score_expr=custom_score_expr,
+        max_workers=max_workers,
+    ) as evaluator:
+        return evaluator.run(tasks, batch_size=batch_size, chunk_size=chunk_size, progress_hook=progress_hook)

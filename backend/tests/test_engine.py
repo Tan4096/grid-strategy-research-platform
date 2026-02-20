@@ -338,3 +338,63 @@ def test_optimization_eval_matches_full_backtest_summary_long_side() -> None:
     assert int(compact.summary["total_closed_trades"]) == full.summary.total_closed_trades
     assert len(compact.equity_values) == len(full.equity_curve)
     assert all(abs(compact.equity_values[i] - full.equity_curve[i].value) < 1e-9 for i in range(len(compact.equity_values)))
+
+
+def test_dynamic_funding_rates_are_applied_to_total_return() -> None:
+    t0 = datetime(2026, 2, 10, tzinfo=timezone.utc)
+    candles = [
+        _mk_candle(t0, 100, 100, 90, 95),
+        _mk_candle(t0 + timedelta(hours=1), 95, 96, 94, 95),
+    ]
+
+    strategy = StrategyConfig(
+        side=GridSide.LONG,
+        lower=90,
+        upper=110,
+        grids=2,
+        leverage=2,
+        margin=1000,
+        stop_loss=80,
+        reopen_after_stop=True,
+        fee_rate=0.0,
+        maker_fee_rate=0.0,
+        taker_fee_rate=0.0,
+        slippage=0.0,
+        maintenance_margin_rate=0.005,
+    )
+
+    no_funding = run_backtest(candles, strategy)
+    with_funding = run_backtest(
+        candles,
+        strategy,
+        funding_rates=[(t0 + timedelta(hours=1), 0.01)],
+    )
+
+    assert with_funding.summary.funding_paid > 0
+    assert with_funding.summary.total_return_usdt < no_funding.summary.total_return_usdt
+
+
+def test_annualized_return_is_disabled_for_consistency() -> None:
+    t0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    candles = [
+        _mk_candle(t0, 105, 106, 99, 100),
+        _mk_candle(t0 + timedelta(hours=1), 100, 101, 89, 90),
+        _mk_candle(t0 + timedelta(hours=2), 90, 111, 89, 110),
+        _mk_candle(t0 + timedelta(hours=3), 110, 112, 109, 111),
+    ]
+    strategy = StrategyConfig(
+        side=GridSide.LONG,
+        lower=90,
+        upper=110,
+        grids=2,
+        leverage=3,
+        margin=1000,
+        stop_loss=80,
+        reopen_after_stop=True,
+        fee_rate=0.0004,
+        slippage=0.0,
+        maintenance_margin_rate=0.005,
+    )
+
+    result = run_backtest(candles, strategy)
+    assert result.summary.annualized_return_pct is None

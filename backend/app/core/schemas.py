@@ -54,8 +54,16 @@ class StrategyConfig(BaseModel):
     use_base_position: bool = False
     reopen_after_stop: bool = True
     fee_rate: float = Field(0.0004, ge=0)
+    maker_fee_rate: Optional[float] = Field(None, ge=0)
+    taker_fee_rate: Optional[float] = Field(None, ge=0)
     slippage: float = Field(0.0, ge=0, le=0.05)
     maintenance_margin_rate: float = Field(0.005, gt=0, le=0.2)
+    funding_rate_per_8h: float = Field(0.0, ge=-0.05, le=0.05)
+    funding_interval_hours: int = Field(8, ge=1, le=24)
+    use_mark_price_for_liquidation: bool = False
+    price_tick_size: float = Field(0.0, ge=0.0)
+    quantity_step_size: float = Field(0.0, ge=0.0)
+    min_notional: float = Field(0.0, ge=0.0)
 
     @model_validator(mode="after")
     def validate_price_range(self) -> "StrategyConfig":
@@ -72,6 +80,14 @@ class StrategyConfig(BaseModel):
         # Accept either decimal fee (0.0004) or percentage-style input (0.04 => 0.04%).
         if self.fee_rate > 0.01:
             self.fee_rate = self.fee_rate / 100.0
+        if self.maker_fee_rate is not None and self.maker_fee_rate > 0.01:
+            self.maker_fee_rate = self.maker_fee_rate / 100.0
+        if self.taker_fee_rate is not None and self.taker_fee_rate > 0.01:
+            self.taker_fee_rate = self.taker_fee_rate / 100.0
+        if self.maker_fee_rate is None:
+            self.maker_fee_rate = self.fee_rate
+        if self.taker_fee_rate is None:
+            self.taker_fee_rate = self.fee_rate
         return self
 
 
@@ -147,9 +163,36 @@ class BacktestSummary(BaseModel):
     total_closed_trades: int
     status: str
     fees_paid: float
+    funding_paid: float
     use_base_position: bool
     base_grid_count: int
     initial_position_size: float
+
+
+class StrategyAnalysis(BaseModel):
+    risk_level: Literal["low", "medium", "high"]
+    structure_dependency: Literal["range", "mixed", "trend_sensitive"]
+    overfitting_flag: bool
+    validation_degradation_pct: float
+    liquidation_risk: Literal["low", "medium", "high"]
+    stability_score: float
+    diagnosis_tags: list[str]
+    ai_explanation: Optional[str] = None
+
+
+class StrategyScoring(BaseModel):
+    profit_score: float
+    risk_score: float
+    stability_score: float
+    robustness_score: float
+    behavior_score: float
+    final_score: float
+    grade: Literal["A", "B", "C", "D", "E"]
+    profit_reasons: list[str] = Field(default_factory=list)
+    risk_reasons: list[str] = Field(default_factory=list)
+    stability_reasons: list[str] = Field(default_factory=list)
+    robustness_reasons: list[str] = Field(default_factory=list)
+    behavior_reasons: list[str] = Field(default_factory=list)
 
 
 class BacktestResult(BaseModel):
@@ -163,6 +206,51 @@ class BacktestResult(BaseModel):
     liquidation_price_curve: list[CurvePoint]
     trades: list[TradeEvent]
     events: list[EventLog]
+    analysis: Optional[StrategyAnalysis] = None
+    scoring: Optional[StrategyScoring] = None
+
+
+class BacktestJobStatus(str, Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class BacktestJobMeta(BaseModel):
+    job_id: str
+    status: BacktestJobStatus
+    created_at: datetime
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    progress: float = 0.0
+    message: Optional[str] = None
+    error: Optional[str] = None
+
+
+class BacktestStartResponse(BaseModel):
+    job_id: str
+    status: BacktestJobStatus
+
+
+class BacktestStatusResponse(BaseModel):
+    job: BacktestJobMeta
+    result: Optional[BacktestResult] = None
+
+
+class MarketParamsResponse(BaseModel):
+    source: DataSource
+    symbol: str
+    maker_fee_rate: float
+    taker_fee_rate: float
+    funding_rate_per_8h: float
+    funding_interval_hours: int
+    price_tick_size: float
+    quantity_step_size: float
+    min_notional: float
+    fetched_at: datetime
+    note: Optional[str] = None
 
 
 def default_request() -> BacktestRequest:
@@ -182,8 +270,16 @@ def default_request() -> BacktestRequest:
             use_base_position=False,
             reopen_after_stop=True,
             fee_rate=0.0004,
+            maker_fee_rate=0.0002,
+            taker_fee_rate=0.0004,
             slippage=0.0002,
             maintenance_margin_rate=0.005,
+            funding_rate_per_8h=0.0,
+            funding_interval_hours=8,
+            use_mark_price_for_liquidation=False,
+            price_tick_size=0.1,
+            quantity_step_size=0.0001,
+            min_notional=5.0,
         ),
         data=DataConfig(
             source=DataSource.BINANCE,

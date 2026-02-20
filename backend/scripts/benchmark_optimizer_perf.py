@@ -69,6 +69,7 @@ def main() -> None:
     results = run_combinations_parallel(
         candles=candles,
         tasks=tasks,
+        funding_rates=None,
         interval_value="1h",
         target=cfg.target,
         custom_score_expr=cfg.custom_score_expr,
