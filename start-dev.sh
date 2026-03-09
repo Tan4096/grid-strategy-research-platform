@@ -14,6 +14,9 @@ FRONTEND_PORT="${FRONTEND_PORT:-5173}"
 BACKEND_HOST="${BACKEND_HOST:-0.0.0.0}"
 FRONTEND_HOST="${FRONTEND_HOST:-0.0.0.0}"
 BACKEND_REQ_HASH_FILE="$BACKEND_VENV/.requirements.sha256"
+FRONTEND_LOCK_HASH_FILE="$FRONTEND_DIR/node_modules/.package-lock.sha256"
+EXPECTED_PYTHON_VERSION="3.11"
+EXPECTED_NODE_MAJOR="20"
 
 BACKEND_PID=""
 FRONTEND_PID=""
@@ -200,6 +203,44 @@ require_cmd() {
   fi
 }
 
+python_version_short() {
+  "$1" - <<'PY'
+import sys
+print(f"{sys.version_info.major}.{sys.version_info.minor}")
+PY
+}
+
+node_major_version() {
+  node -p 'process.versions.node.split(".")[0]'
+}
+
+ensure_supported_python() {
+  local version
+  version="$(python_version_short python3)"
+  if [[ "$version" != "$EXPECTED_PYTHON_VERSION" ]]; then
+    echo "python3 must be ${EXPECTED_PYTHON_VERSION}.x, found ${version}. Please switch python3 to Python ${EXPECTED_PYTHON_VERSION} before running ${SCRIPT_NAME}." >&2
+    exit 1
+  fi
+}
+
+ensure_supported_node() {
+  local major
+  major="$(node_major_version)"
+  if [[ "$major" != "$EXPECTED_NODE_MAJOR" ]]; then
+    echo "node must be ${EXPECTED_NODE_MAJOR}.x, found $(node -v). Please switch to Node ${EXPECTED_NODE_MAJOR} before running ${SCRIPT_NAME}." >&2
+    exit 1
+  fi
+}
+
+ensure_backend_venv_python() {
+  local version
+  version="$(python_version_short "$1")"
+  if [[ "$version" != "$EXPECTED_PYTHON_VERSION" ]]; then
+    echo "Backend virtualenv uses Python ${version}, expected ${EXPECTED_PYTHON_VERSION}. Remove backend/.venv and rerun ${SCRIPT_NAME} with Python ${EXPECTED_PYTHON_VERSION}." >&2
+    exit 1
+  fi
+}
+
 cleanup() {
   set +e
   if [[ -n "$BACKEND_PID" ]] && kill -0 "$BACKEND_PID" >/dev/null 2>&1; then
@@ -213,7 +254,10 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 require_cmd python3
+require_cmd node
 require_cmd npm
+ensure_supported_python
+ensure_supported_node
 
 LAN_IP_DETECTED="$(detect_lan_ip || true)"
 if [[ -z "$LAN_IP_DETECTED" ]]; then
@@ -247,6 +291,8 @@ if [[ -z "$BACKEND_PYTHON" ]]; then
   exit 1
 fi
 
+ensure_backend_venv_python "$BACKEND_PYTHON"
+
 if command -v shasum >/dev/null 2>&1; then
   BACKEND_REQ_HASH="$(shasum -a 256 "$BACKEND_DIR/requirements.txt" | awk '{print $1}')"
 else
@@ -275,6 +321,7 @@ required_modules = [
     "pandas",
     "requests",
     "pydantic",
+    "pydantic_settings",
     "multipart",
     "optuna",
     "pytest",
@@ -292,9 +339,31 @@ if [[ "$NEEDS_BACKEND_INSTALL" -eq 1 ]]; then
 fi
 deactivate || true
 
+if command -v shasum >/dev/null 2>&1; then
+  FRONTEND_LOCK_HASH="$(shasum -a 256 "$FRONTEND_DIR/package-lock.json" | awk '{print $1}')"
+else
+  FRONTEND_LOCK_HASH="$(python3 - <<PY
+import hashlib
+from pathlib import Path
+path = Path(r"$FRONTEND_DIR/package-lock.json")
+print(hashlib.sha256(path.read_bytes()).hexdigest())
+PY
+)"
+fi
+
+NEEDS_FRONTEND_INSTALL=0
 if [[ ! -d "$FRONTEND_DIR/node_modules" ]]; then
-  log "Installing frontend dependencies..."
-  (cd "$FRONTEND_DIR" && npm install)
+  NEEDS_FRONTEND_INSTALL=1
+elif [[ ! -f "$FRONTEND_LOCK_HASH_FILE" ]]; then
+  NEEDS_FRONTEND_INSTALL=1
+elif [[ "$(cat "$FRONTEND_LOCK_HASH_FILE")" != "$FRONTEND_LOCK_HASH" ]]; then
+  NEEDS_FRONTEND_INSTALL=1
+fi
+
+if [[ "$NEEDS_FRONTEND_INSTALL" -eq 1 ]]; then
+  log "Installing frontend dependencies with npm ci..."
+  (cd "$FRONTEND_DIR" && npm ci)
+  printf '%s\n' "$FRONTEND_LOCK_HASH" > "$FRONTEND_LOCK_HASH_FILE"
 fi
 
 # 若默认后端端口被占用，自动尝试下一个端口

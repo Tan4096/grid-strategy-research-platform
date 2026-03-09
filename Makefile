@@ -2,10 +2,35 @@ SHELL := /bin/bash
 BACKEND_PYTHON ?= backend/.venv/bin/python
 FRONTEND_DIR := frontend
 
-.PHONY: dev test build e2e backend-test frontend-test frontend-build frontend-lint frontend-contract oss-check review-surface
+.PHONY: dev doctor env-example config-docs test build e2e backend-test backend-lint backend-typecheck frontend-test frontend-typecheck frontend-build frontend-lint frontend-contract frontend-openapi frontend-contract-sync oss-check review-surface
 
 dev:
 	./start-dev.sh
+
+doctor:
+	bash scripts/doctor.sh
+
+env-example:
+	python3 scripts/render_env_example.py
+
+config-docs: env-example
+	python3 scripts/render_config_reference.py
+	python3 scripts/render_readme_config_snippets.py
+
+backend-lint:
+	$(BACKEND_PYTHON) -m ruff check backend/app/api backend/app/core backend/app/tasks/arq_queue.py
+
+backend-typecheck:
+	$(BACKEND_PYTHON) -m mypy
+
+frontend-typecheck:
+	cd $(FRONTEND_DIR) && npm run typecheck
+
+frontend-openapi:
+	$(BACKEND_PYTHON) backend/scripts/export_openapi.py frontend/openapi.json
+
+frontend-contract-sync: frontend-openapi
+	cd $(FRONTEND_DIR) && npm run gen:api-types
 
 backend-test:
 	$(BACKEND_PYTHON) -m pytest backend/tests -q
@@ -22,7 +47,7 @@ frontend-test:
 frontend-build:
 	cd $(FRONTEND_DIR) && npm run build
 
-test: backend-test frontend-test
+test: backend-test frontend-typecheck frontend-test
 
 build: frontend-build
 

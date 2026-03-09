@@ -65,3 +65,5 @@ Please open an issue first for:
 - Prefer existing patterns over introducing new abstractions.
 - Preserve current API contracts unless a change is intentional and documented.
 - Add tests for behavior changes when there is a natural place to do so.
+
+- [ ] If env defaults changed, run `make env-example` and commit the regenerated `deploy/.env.example`.

@@ -76,7 +76,27 @@ Useful developer docs:
 - Backend: `backend/README.md`
 - Frontend: `frontend/README.md`
 - Deployment: `deploy/README.md`
+- Config reference: `deploy/CONFIG_REFERENCE.md`
 - Release checklist: `release/OPEN_SOURCE_RELEASE_CHECKLIST.md`
+
+## Compatibility Policy / 兼容性策略
+
+- HTTP API paths, request bodies, response bodies, and auth / rate-limit semantics stay backward compatible unless a breaking change is explicitly documented.
+- Frontend transport contracts should be regenerated from OpenAPI in the same PR as any backend API change.
+- UI state models may evolve internally, but visible workflow regressions should be covered by unit or e2e tests.
+
+## Deployment Defaults / 部署默认分组
+
+<!-- BEGIN GENERATED:CONFIG_SUMMARY -->
+- Generated from `deploy/env.catalog.json`; rerun `make config-docs` after changing defaults.
+- **Project**: Ports, logging, and CORS defaults that shape local and deployed runtime topology. Example keys: `COMPOSE_PROJECT_NAME`, `BACKEND_PORT`, `BACKEND_WORKERS`, `FRONTEND_PORT`.
+- **Auth**: Authentication and JWT defaults for shared or public deployments. Example keys: `APP_AUTH_ENABLED`, `APP_PUBLIC_MODE`, `APP_AUTH_API_KEYS`, `APP_AUTH_BEARER_TOKENS`.
+- **Task Backend**: Queue, Redis, and task backend settings for background job execution and state persistence. Example keys: `APP_TASK_BACKEND`, `APP_BACKTEST_TASK_BACKEND`, `APP_OPTIMIZATION_TASK_BACKEND`, `APP_ARQ_REDIS_DSN`.
+- **Runtime Guards**: Rate-limit and concurrency ceilings that protect shared environments. Example keys: `APP_RATE_LIMIT_ENABLED`, `APP_RATE_LIMIT_WRITE_RPM`, `APP_RATE_LIMIT_IP_WRITE_RPM`, `APP_CONCURRENCY_LIMIT_ENABLED`.
+- **Optimization Store**: Persistence, recovery, and retention limits for optimization/backtest job records. Example keys: `OPTIMIZATION_SELECTED_CLEAR_MAX`, `OPTIMIZATION_SELECTED_CLEAR_MAX_PUBLIC`, `OPTIMIZATION_RECOVERY_ENABLED`, `OPTIMIZATION_RECOVERY_MAX_JOBS`.
+- **Frontend**: Build-time frontend API base and browser-side task recovery controls. Example keys: `VITE_API_BASE`, `VITE_JOB_RESUME_ENABLED`.
+- Full generated tables live in `deploy/CONFIG_REFERENCE.md`.
+<!-- END GENERATED:CONFIG_SUMMARY -->
 
 ## Requirements / 环境要求
 

@@ -50,6 +50,16 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Lint backend
+        env:
+          PYTHONPATH: .
+        run: python -m ruff check app/api app/core app/tasks/arq_queue.py
+
+      - name: Type-check backend
+        env:
+          PYTHONPATH: .
+        run: python -m mypy
+
       - name: Run backend tests
         env:
           PYTHONPATH: .
@@ -83,6 +93,9 @@ jobs:
 
       - name: Lint frontend
         run: npm run lint
+
+      - name: Type-check frontend
+        run: npm run typecheck
 
       - name: Run frontend unit tests
         run: npm run test:unit

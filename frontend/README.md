@@ -25,6 +25,7 @@ npm run dev
 ```bash
 npm run capture:readme-screenshots
 npm run lint
+npm run typecheck
 npm run gen:api-types
 npm run test:unit
 npm run build
@@ -57,3 +58,11 @@ Public-open-source expectation:
 - Keep UI behavior compatible unless the change is intentional and documented.
 - Prefer small focused changes over broad visual rewrites.
 - Update tests when changing view-model or API behavior.
+
+## OpenAPI contract sync
+
+```bash
+make frontend-contract-sync
+```
+
+`make frontend-contract-sync` exports the current FastAPI OpenAPI schema into `frontend/openapi.json` and regenerates `src/lib/api.generated.ts`.

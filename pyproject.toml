@@ -1,0 +1,33 @@
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+src = ["backend"]
+
+[tool.ruff.lint]
+select = ["E", "F"]
+ignore = ["E203", "E402", "E501"]
+
+[tool.mypy]
+python_version = "3.11"
+files = [
+  "backend/app/api",
+  "backend/app/core/schemas.py",
+  "backend/app/core/settings.py",
+  "backend/app/core/task_backend.py",
+  "backend/app/core/security.py",
+  "backend/app/core/rate_limit.py",
+  "backend/app/core/concurrency_limit.py",
+  "backend/app/core/redis_state.py",
+  "backend/app/core/readiness.py",
+  "backend/app/tasks/arq_queue.py",
+  "backend/app/services/live_snapshot_http.py",
+  "backend/app/services/live_snapshot_types.py",
+]
+ignore_missing_imports = true
+follow_imports = "silent"
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_unreachable = true
+check_untyped_defs = true
+pretty = true
+show_error_codes = true
