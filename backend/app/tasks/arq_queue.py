@@ -2,32 +2,35 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
-import os
 import threading
 from typing import Any
 
+from app.core.settings import get_settings
+
+
 
 def arq_queue_name() -> str:
-    return (os.getenv("APP_ARQ_QUEUE_NAME") or "grid-strategy-research-platform").strip() or "grid-strategy-research-platform"
+    return get_settings().app_arq_queue_name.strip() or "grid-strategy-research-platform"
+
 
 
 def arq_max_jobs() -> int:
-    return max(1, int(os.getenv("APP_ARQ_MAX_JOBS", "4")))
+    return max(1, get_settings().app_arq_max_jobs)
+
 
 
 def arq_job_timeout_seconds() -> int:
-    return max(60, int(os.getenv("APP_ARQ_JOB_TIMEOUT_SECONDS", "21600")))
+    return max(60, get_settings().app_arq_job_timeout_seconds)
+
 
 
 def redis_dsn() -> str:
-    return (os.getenv("APP_ARQ_REDIS_DSN") or "redis://localhost:6379/0").strip() or "redis://localhost:6379/0"
+    return get_settings().app_arq_redis_dsn.strip() or "redis://localhost:6379/0"
+
 
 
 def _enqueue_timeout_seconds() -> float:
-    try:
-        return max(0.5, float(os.getenv("APP_ARQ_ENQUEUE_TIMEOUT_SECONDS", "5")))
-    except ValueError:
-        return 5.0
+    return max(0.5, get_settings().app_arq_enqueue_timeout_seconds)
 
 
 class ArqEnqueueError(RuntimeError):
@@ -45,15 +48,17 @@ class ArqEnqueueError(RuntimeError):
         self.retryable = bool(retryable)
 
 
+
 def _require_arq_modules():
     try:
-        from arq import create_pool  # type: ignore
-        from arq.connections import RedisSettings  # type: ignore
+        from arq import create_pool
+        from arq.connections import RedisSettings
     except ModuleNotFoundError as exc:
         raise RuntimeError(
             "Arq 依赖未安装。请安装 backend 依赖后重试，或切回 APP_TASK_BACKEND/APP_*_TASK_BACKEND=inmemory。"
         ) from exc
     return create_pool, RedisSettings
+
 
 
 def redis_settings_from_env():
@@ -69,6 +74,7 @@ _REDIS_POOL: Any = None
 _REDIS_POOL_DSN: str | None = None
 
 
+
 def _loop_runner() -> None:
     global _LOOP
     loop = asyncio.new_event_loop()
@@ -76,6 +82,7 @@ def _loop_runner() -> None:
     _LOOP = loop
     _LOOP_READY.set()
     loop.run_forever()
+
 
 
 def _ensure_background_loop() -> asyncio.AbstractEventLoop:
@@ -160,6 +167,7 @@ async def _enqueue(function_name: str, job_id: str, payload: dict[str, Any]) -> 
         ) from exc
 
 
+
 def _run_enqueue(function_name: str, job_id: str, payload: dict[str, Any]) -> None:
     loop = _ensure_background_loop()
     future = asyncio.run_coroutine_threadsafe(
@@ -177,8 +185,10 @@ def _run_enqueue(function_name: str, job_id: str, payload: dict[str, Any]) -> No
         ) from exc
 
 
+
 def enqueue_backtest_job(job_id: str, payload: dict[str, Any]) -> None:
     _run_enqueue(function_name="arq_run_backtest_job", job_id=job_id, payload=payload)
+
 
 
 def enqueue_optimization_job(job_id: str, payload: dict[str, Any]) -> None:

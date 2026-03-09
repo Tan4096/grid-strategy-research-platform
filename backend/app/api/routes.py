@@ -1,6 +1,6 @@
 from __future__ import annotations
 from datetime import datetime, timedelta, timezone
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any, Literal, Optional, cast
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
@@ -243,7 +243,7 @@ def backtest_anchor_price_api(
     return BacktestAnchorPriceResponse(
         anchor_price=float(f"{anchor_raw:.2f}"),
         anchor_time=anchor_time,
-        anchor_source=anchor_source,
+        anchor_source=cast(Literal["first_candle_close", "avg_candle_close", "last_candle_close", "custom_price"], anchor_source),
         candle_count=len(candles),
     )
 

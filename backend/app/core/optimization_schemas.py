@@ -129,7 +129,7 @@ class OptimizationConfig(BaseModel):
 class OptimizationRequest(BaseModel):
     base_strategy: StrategyConfig
     data: DataConfig
-    optimization: OptimizationConfig = OptimizationConfig()
+    optimization: OptimizationConfig = Field(default_factory=OptimizationConfig)
 
 
 class OptimizationResultRow(BaseModel):

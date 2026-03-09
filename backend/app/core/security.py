@@ -1,17 +1,19 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from enum import Enum
-from typing import Callable
+from typing import Any, Callable
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security.utils import get_authorization_scheme_param
 
+from app.core.settings import get_settings
+
+pyjwt: Any
 try:
-    import jwt
+    import jwt as pyjwt
 except ModuleNotFoundError:  # pragma: no cover - fallback for partially provisioned envs
-    jwt = None
+    pyjwt = None
 
 
 class Role(str, Enum):
@@ -34,21 +36,18 @@ class AuthPrincipal:
     auth_type: str
 
 
-def _truthy(value: str | None, default: bool = False) -> bool:
-    if value is None:
-        return default
-    return value.strip().lower() not in {"0", "false", "no", "off"}
-
 
 def auth_enabled() -> bool:
-    return _truthy(os.getenv("APP_AUTH_ENABLED"), default=True)
+    return get_settings().app_auth_enabled
+
 
 
 def public_mode_enabled() -> bool:
-    explicit = os.getenv("APP_PUBLIC_MODE")
+    explicit = get_settings().app_public_mode
     if explicit is not None:
-        return _truthy(explicit, default=False)
+        return explicit
     return not auth_enabled()
+
 
 
 def _parse_role(raw: str) -> Role | None:
@@ -56,6 +55,7 @@ def _parse_role(raw: str) -> Role | None:
         return Role(raw.strip().lower())
     except ValueError:
         return None
+
 
 
 def _parse_token_map(raw: str, auth_type: str) -> dict[str, AuthPrincipal]:
@@ -76,33 +76,35 @@ def _parse_token_map(raw: str, auth_type: str) -> dict[str, AuthPrincipal]:
     return result
 
 
+
 def _api_key_map() -> dict[str, AuthPrincipal]:
-    raw = os.getenv("APP_AUTH_API_KEYS", "")
-    return _parse_token_map(raw, auth_type="api_key")
+    return _parse_token_map(get_settings().app_auth_api_keys, auth_type="api_key")
+
 
 
 def _bearer_token_map() -> dict[str, AuthPrincipal]:
-    raw = os.getenv("APP_AUTH_BEARER_TOKENS", "")
-    return _parse_token_map(raw, auth_type="bearer")
+    return _parse_token_map(get_settings().app_auth_bearer_tokens, auth_type="bearer")
+
 
 
 def _decode_jwt_principal(token: str) -> AuthPrincipal | None:
-    secret = os.getenv("APP_AUTH_JWT_SECRET", "").strip()
+    settings = get_settings()
+    secret = settings.app_auth_jwt_secret.strip()
     if not secret:
         return None
-    if jwt is None:
+    if pyjwt is None:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="服务端缺少 JWT 依赖（PyJWT），无法校验 Bearer Token",
         )
 
-    algorithm = os.getenv("APP_AUTH_JWT_ALGORITHM", "HS256").strip() or "HS256"
-    audience = os.getenv("APP_AUTH_JWT_AUDIENCE", "").strip()
-    issuer = os.getenv("APP_AUTH_JWT_ISSUER", "").strip()
-    role_claim = os.getenv("APP_AUTH_JWT_ROLE_CLAIM", "role").strip() or "role"
-    subject_claim = os.getenv("APP_AUTH_JWT_SUB_CLAIM", "sub").strip() or "sub"
+    algorithm = settings.app_auth_jwt_algorithm.strip() or "HS256"
+    audience = settings.app_auth_jwt_audience.strip()
+    issuer = settings.app_auth_jwt_issuer.strip()
+    role_claim = settings.app_auth_jwt_role_claim.strip() or "role"
+    subject_claim = settings.app_auth_jwt_sub_claim.strip() or "sub"
 
-    decode_kwargs: dict[str, object] = {
+    decode_kwargs: dict[str, Any] = {
         "algorithms": [algorithm],
         "options": {"verify_aud": bool(audience)},
     }
@@ -112,8 +114,8 @@ def _decode_jwt_principal(token: str) -> AuthPrincipal | None:
         decode_kwargs["issuer"] = issuer
 
     try:
-        payload = jwt.decode(token, secret, **decode_kwargs)
-    except jwt.PyJWTError as exc:
+        payload = pyjwt.decode(token, secret, **(decode_kwargs))
+    except pyjwt.PyJWTError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"JWT 无效: {exc}",
@@ -131,6 +133,7 @@ def _decode_jwt_principal(token: str) -> AuthPrincipal | None:
     subject_raw = payload.get(subject_claim)
     subject = str(subject_raw).strip() if subject_raw else "jwt-user"
     return AuthPrincipal(subject=subject, role=role, auth_type="jwt")
+
 
 
 def authenticate_request(request: Request) -> AuthPrincipal:
@@ -160,11 +163,13 @@ def authenticate_request(request: Request) -> AuthPrincipal:
     )
 
 
+
 def get_current_principal(request: Request) -> AuthPrincipal:
     principal = getattr(request.state, "principal", None)
     if isinstance(principal, AuthPrincipal):
         return principal
     return authenticate_request(request)
+
 
 
 def require_min_role(required_role: Role) -> Callable[..., AuthPrincipal]:

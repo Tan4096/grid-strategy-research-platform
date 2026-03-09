@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -12,7 +11,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import router as api_router
+from app.api.domain_routes import router as api_router
 from app.core.api_errors import ApiError, build_error_response, http_status_error_code
 from app.core.audit import audit_http_request
 from app.core.concurrency_limit import acquire_concurrency_slot, release_concurrency_slot
@@ -21,11 +20,12 @@ from app.optimizer.optimizer import recover_interrupted_optimization_jobs
 from app.core.rate_limit import check_rate_limit
 from app.core.redis_state import ensure_state_redis_ready_for_arq_or_raise
 from app.core.security import AuthPrincipal, authenticate_request
+from app.core.settings import get_settings
 from app.core.task_backend import any_inmemory_backend_enabled
 
 
 def _configure_logging() -> None:
-    level_name = (os.getenv("APP_LOG_LEVEL") or "INFO").upper()
+    level_name = get_settings().app_log_level.upper()
     level = getattr(logging, level_name, logging.INFO)
     logging.basicConfig(
         level=level,
@@ -57,10 +57,7 @@ app = FastAPI(
     lifespan=_lifespan,
 )
 
-origins_raw = os.getenv("CORS_ALLOW_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
-allow_origins = [item.strip() for item in origins_raw.split(",") if item.strip()]
-if not allow_origins:
-    allow_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
+allow_origins = get_settings().cors_allow_origins
 allow_credentials = allow_origins != ["*"]
 
 app.add_middleware(
@@ -73,17 +70,7 @@ app.add_middleware(
 
 
 def _configured_worker_count() -> int:
-    for env_name in ("BACKEND_WORKERS", "UVICORN_WORKERS", "WEB_CONCURRENCY"):
-        raw = (os.getenv(env_name) or "").strip()
-        if not raw:
-            continue
-        try:
-            value = int(raw)
-        except ValueError:
-            continue
-        if value > 0:
-            return value
-    return 1
+    return get_settings().configured_worker_count()
 
 
 def _uses_inmemory_jobs() -> bool:

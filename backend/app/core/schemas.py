@@ -125,7 +125,7 @@ class DataConfig(BaseModel):
 
 class BacktestRequest(BaseModel):
     strategy: StrategyConfig
-    data: DataConfig = Field(default_factory=DataConfig)
+    data: DataConfig
 
 
 class CurvePoint(BaseModel):

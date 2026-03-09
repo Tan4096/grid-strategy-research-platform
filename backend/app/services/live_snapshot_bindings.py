@@ -1,0 +1,92 @@
+from __future__ import annotations
+
+from functools import partial
+import time
+
+from app.services.live_snapshot_cache import hash_api_key as _hash_api_key
+from app.services.live_snapshot_diagnostics import (
+    build_diag as _diag,
+    normalize_diagnostics as _normalize_diagnostics,
+    sanitize_error_message as _sanitize_error_message,
+)
+from app.services.live_snapshot_http import query_string as _query_string, request_json as _request_json
+from app.services.live_snapshot_normalize import (
+    build_completeness as _build_completeness,
+    build_daily_breakdown as _build_daily_breakdown,
+    build_ledger_entries as _build_ledger_entries,
+    build_ledger_summary as _build_ledger_summary,
+    build_summary as _build_summary,
+    infer_grid as _infer_grid,
+    sort_and_dedupe_fills as _sort_and_dedupe_fills,
+    sort_and_dedupe_funding as _sort_and_dedupe_funding,
+    sort_orders as _sort_orders,
+)
+from app.services import live_snapshot_clients as _clients_layer
+from app.services import live_snapshot_collectors as _collectors_layer
+from app.services import live_snapshot_pnl as _pnl_layer
+from app.services import live_snapshot_support as _support_layer
+
+_retry_live_action = _support_layer.retry_live_action
+_mask_api_key = _support_layer.mask_api_key
+_to_data_source = _support_layer.to_data_source
+_safe_float = _support_layer.safe_float
+_safe_int = _support_layer.safe_int
+_utc_now = _support_layer.utc_now
+_coerce_text = _support_layer.coerce_text
+_coerce_optional_text = _support_layer.coerce_optional_text
+_first_present = _support_layer.first_present
+_parse_boolish = _support_layer.parse_boolish
+_normalize_position_side = _support_layer.normalize_position_side
+_normalize_order_side = _support_layer.normalize_order_side
+_optional_float = _support_layer.optional_float
+_optional_int = _support_layer.optional_int
+_normalize_datetime = _support_layer.normalize_datetime
+_optional_datetime = _support_layer.optional_datetime
+_ms = _support_layer.ms
+_time_chunks = _support_layer.time_chunks
+_floor_to_minute = _support_layer.floor_to_minute
+
+_cache_key_for_robot_list = partial(_support_layer.cache_key_for_robot_list, hash_api_key=_hash_api_key)
+_cache_key_for_snapshot = partial(_support_layer.cache_key_for_snapshot, hash_api_key=_hash_api_key, normalize_datetime=_normalize_datetime)
+
+_build_live_pnl_curve_points = _pnl_layer.build_live_pnl_curve_points
+_build_live_pnl_curve = _pnl_layer.build_live_pnl_curve
+_build_live_simulated_pnl_curve = _pnl_layer.build_live_simulated_pnl_curve
+
+_fetch_market_params_best_effort = partial(_clients_layer.fetch_market_params_best_effort, to_data_source=_to_data_source, sanitize_error_message=_sanitize_error_message)
+_normalize_binance_symbol = _clients_layer.normalize_binance_symbol
+_normalize_bybit_symbol = _clients_layer.normalize_bybit_symbol
+_normalize_okx_symbol = _clients_layer.normalize_okx_symbol
+pick_positive_value = _clients_layer.pick_positive_value
+_binance_signed_get = partial(_clients_layer.binance_signed_get, utc_now=_utc_now, query_string=_query_string, request_json=_request_json)
+_binance_collect_records = partial(_clients_layer.binance_collect_records, safe_int=_safe_int, signed_get=_binance_signed_get)
+_fetch_binance_snapshot = partial(_clients_layer.fetch_binance_snapshot, normalize_symbol=_normalize_binance_symbol, signed_get=_binance_signed_get, collect_records=_binance_collect_records, ms=_ms, safe_float=_safe_float, normalize_datetime=_normalize_datetime, sort_orders=_sort_orders, sort_and_dedupe_fills=_sort_and_dedupe_fills, sort_and_dedupe_funding=_sort_and_dedupe_funding, diag=_diag)
+_bybit_signed_get = partial(_clients_layer.bybit_signed_get, utc_now=_utc_now, query_string=_query_string, request_json=_request_json, safe_int=_safe_int, sanitize_error_message=_sanitize_error_message)
+_bybit_collect_execution_history = partial(_clients_layer.bybit_collect_execution_history, time_chunks=_time_chunks, ms=_ms, signed_get=_bybit_signed_get, coerce_text=_coerce_text)
+_bybit_collect_transaction_logs = partial(_clients_layer.bybit_collect_transaction_logs, time_chunks=_time_chunks, ms=_ms, signed_get=_bybit_signed_get, coerce_text=_coerce_text)
+_bybit_build_funding_entries = partial(_clients_layer.bybit_build_funding_entries, safe_float=_safe_float, coerce_text=_coerce_text, normalize_datetime=_normalize_datetime, sort_and_dedupe_funding=_sort_and_dedupe_funding)
+_fetch_bybit_snapshot = partial(_clients_layer.fetch_bybit_snapshot, normalize_symbol=_normalize_bybit_symbol, signed_get=_bybit_signed_get, collect_execution_history=_bybit_collect_execution_history, collect_transaction_logs=_bybit_collect_transaction_logs, build_funding_entries=_bybit_build_funding_entries, ms=_ms, safe_float=_safe_float, normalize_datetime=_normalize_datetime, sort_orders=_sort_orders, sort_and_dedupe_fills=_sort_and_dedupe_fills, sort_and_dedupe_funding=_sort_and_dedupe_funding, diag=_diag)
+_okx_iso_timestamp = partial(_clients_layer.okx_iso_timestamp, utc_now=_utc_now)
+_okx_signed_get = partial(_clients_layer.okx_signed_get, query_string=_query_string, request_json=_request_json, iso_timestamp=_okx_iso_timestamp, sanitize_error_message=_sanitize_error_message)
+_okx_split_billing_windows = partial(_clients_layer.okx_split_billing_windows, normalize_datetime=_normalize_datetime, time_chunks=_time_chunks)
+_okx_collect_funding_entries = partial(_clients_layer.okx_collect_funding_entries, ms=_ms, split_billing_windows=_okx_split_billing_windows, signed_get=_okx_signed_get, safe_float=_safe_float, coerce_text=_coerce_text, normalize_datetime=_normalize_datetime, sort_and_dedupe_funding=_sort_and_dedupe_funding)
+_okx_collect_ledger_entries = partial(_clients_layer.okx_collect_ledger_entries, ms=_ms, split_billing_windows=_okx_split_billing_windows, signed_get=_okx_signed_get, safe_float=_safe_float, coerce_text=_coerce_text, normalize_datetime=_normalize_datetime, sort_entries=lambda items: sorted(items, key=lambda item: (_normalize_datetime(item.timestamp), item.kind, item.amount)))
+_fetch_okx_snapshot = partial(_clients_layer.fetch_okx_snapshot, normalize_symbol=_normalize_okx_symbol, utc_now=_utc_now, signed_get=_okx_signed_get, ms=_ms, safe_float=_safe_float, normalize_datetime=_normalize_datetime, collect_funding_entries=_okx_collect_funding_entries, sort_orders=_sort_orders, sort_and_dedupe_fills=_sort_and_dedupe_fills, diag=_diag)
+
+_okx_signed_get_robot_list = partial(_collectors_layer.okx_signed_get_robot_list, query_string=_query_string, request_json=_request_json, iso_timestamp=_okx_iso_timestamp, sanitize_error_message=_sanitize_error_message)
+_build_live_robot_list_item = partial(_collectors_layer.build_live_robot_list_item, coerce_text=_coerce_text, first_present=_first_present, normalize_position_side=_normalize_position_side, optional_datetime=_optional_datetime, optional_float=_optional_float, optional_int=_optional_int)
+_build_live_monitoring_info = partial(_collectors_layer.build_live_monitoring_info, utc_now=_utc_now, normalize_datetime=_normalize_datetime)
+_okx_bot_param_variants = _collectors_layer.okx_bot_param_variants
+_okx_bot_get_first_available = partial(_collectors_layer.okx_bot_get_first_available, okx_signed_get=_okx_signed_get, bot_param_variants=partial(_collectors_layer.okx_bot_param_variants))
+_okx_bot_sub_order_paths = _collectors_layer.okx_bot_sub_order_paths
+_okx_bot_get_sub_orders = partial(_collectors_layer.okx_bot_get_sub_orders, normalize_datetime=_normalize_datetime, sub_order_paths=_okx_bot_sub_order_paths, bot_param_variants=partial(_collectors_layer.okx_bot_param_variants), retry_live_action=_retry_live_action, okx_signed_get=_okx_signed_get, first_present=_first_present, optional_datetime=_optional_datetime, coerce_optional_text=_coerce_optional_text)
+_build_okx_bot_position = partial(_collectors_layer.build_okx_bot_position, normalize_position_side=_normalize_position_side, first_present=_first_present, safe_float=_safe_float, optional_float=_optional_float)
+_build_okx_bot_open_orders = partial(_collectors_layer.build_okx_bot_open_orders, first_present=_first_present, safe_float=_safe_float, coerce_text=_coerce_text, normalize_order_side=_normalize_order_side, sort_orders=_sort_orders)
+_build_okx_bot_fills = partial(_collectors_layer.build_okx_bot_fills, first_present=_first_present, safe_float=_safe_float, coerce_text=_coerce_text, normalize_order_side=_normalize_order_side, sort_and_dedupe_fills=_sort_and_dedupe_fills)
+_build_okx_bot_funding_entries = partial(_collectors_layer.build_okx_bot_funding_entries, first_present=_first_present, safe_float=_safe_float, optional_datetime=_optional_datetime, sort_and_dedupe_funding=_sort_and_dedupe_funding)
+_resolve_effective_strategy_started_at = _collectors_layer.resolve_effective_strategy_started_at
+_resolve_okx_bot_created_at_from_list = partial(_collectors_layer.resolve_okx_bot_created_at_from_list, signed_get_robot_list=_okx_signed_get_robot_list, retry_live_action=_retry_live_action, build_robot_list_item=_build_live_robot_list_item, normalize_datetime=_normalize_datetime, utc_now=_utc_now, okx_bot_list_param_variants=_collectors_layer.okx_bot_param_variants)
+_build_okx_bot_summary = partial(_collectors_layer.build_okx_bot_summary, first_present=_first_present, safe_float=_safe_float)
+_build_okx_bot_inferred_grid = partial(_collectors_layer.build_okx_bot_inferred_grid, first_present=_first_present, safe_float=_safe_float, safe_int=_safe_int, normalize_position_side=_normalize_position_side, parse_boolish=_parse_boolish, infer_grid=_infer_grid)
+_build_okx_robot_overview = partial(_collectors_layer.build_okx_robot_overview, first_present=_first_present, coerce_text=_coerce_text, coerce_optional_text=_coerce_optional_text, normalize_position_side=_normalize_position_side, optional_datetime=_optional_datetime, optional_float=_optional_float, optional_int=_optional_int, parse_boolish=_parse_boolish)
+_fetch_okx_bot_snapshot = partial(_collectors_layer.fetch_okx_bot_snapshot, perf_counter=time.perf_counter, bot_get_first_available=_okx_bot_get_first_available, optional_datetime=_optional_datetime, first_present=_first_present, resolve_effective_strategy_started_at=_resolve_effective_strategy_started_at, resolve_created_at_from_list=_resolve_okx_bot_created_at_from_list, bot_get_sub_orders=_okx_bot_get_sub_orders, diag=_diag, build_position=_build_okx_bot_position, build_open_orders=_build_okx_bot_open_orders, build_fills=_build_okx_bot_fills, build_funding_entries=_build_okx_bot_funding_entries, collect_funding_entries=_okx_collect_funding_entries, collect_ledger_entries=_okx_collect_ledger_entries, coerce_text=_coerce_text, normalize_symbol=_normalize_okx_symbol, build_inferred_grid=_build_okx_bot_inferred_grid, build_summary=_build_okx_bot_summary, build_robot_overview=_build_okx_robot_overview)

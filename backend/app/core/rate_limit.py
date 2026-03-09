@@ -2,42 +2,41 @@ from __future__ import annotations
 
 import hashlib
 import math
-import os
 import threading
 import time
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Any
 
 from fastapi import Request
 
 from app.core.redis_state import get_state_redis
 from app.core.security import AuthPrincipal
+from app.core.settings import get_settings
 
-
-def _truthy(value: str | None, default: bool = False) -> bool:
-    if value is None:
-        return default
-    return value.strip().lower() not in {"0", "false", "no", "off"}
 
 
 def _enabled() -> bool:
-    return _truthy(os.getenv("APP_RATE_LIMIT_ENABLED"), default=True)
+    return get_settings().app_rate_limit_enabled
+
 
 
 def _write_rpm_per_subject() -> int:
-    return max(5, int(os.getenv("APP_RATE_LIMIT_WRITE_RPM", "120")))
+    return max(5, get_settings().app_rate_limit_write_rpm)
+
 
 
 def _write_rpm_per_ip() -> int:
-    return max(10, int(os.getenv("APP_RATE_LIMIT_IP_WRITE_RPM", "240")))
+    return max(10, get_settings().app_rate_limit_ip_write_rpm)
+
 
 
 def _bucket_ttl_seconds() -> int:
-    return max(60, int(os.getenv("APP_RATE_LIMIT_BUCKET_TTL_SECONDS", "1800")))
+    return max(60, get_settings().app_rate_limit_bucket_ttl_seconds)
+
 
 
 def _window_seconds() -> int:
-    return max(10, int(os.getenv("APP_RATE_LIMIT_WINDOW_SECONDS", "60")))
+    return max(10, get_settings().app_rate_limit_window_seconds)
 
 
 @dataclass
@@ -51,9 +50,10 @@ _SUBJECT_BUCKETS: dict[str, _Bucket] = {}
 _IP_BUCKETS: dict[str, _Bucket] = {}
 
 
+
 def _is_rate_limited_method(method: str) -> bool:
-    normalized = method.upper()
-    return normalized in {"POST", "PUT", "PATCH", "DELETE"}
+    return method.upper() in {"POST", "PUT", "PATCH", "DELETE"}
+
 
 
 def _refill_and_consume(
@@ -61,7 +61,7 @@ def _refill_and_consume(
     key: str,
     rate_per_minute: int,
     now: float,
-) -> Tuple[bool, int]:
+) -> tuple[bool, int]:
     refill_per_second = rate_per_minute / 60.0
     capacity = float(rate_per_minute)
     bucket = buckets.get(key)
@@ -84,12 +84,14 @@ def _refill_and_consume(
     return False, wait_seconds
 
 
+
 def _cleanup_buckets(now: float) -> None:
     ttl_seconds = _bucket_ttl_seconds()
     for buckets in (_SUBJECT_BUCKETS, _IP_BUCKETS):
         stale_keys = [key for key, bucket in buckets.items() if (now - bucket.updated_at) > ttl_seconds]
         for key in stale_keys:
             buckets.pop(key, None)
+
 
 
 def _rate_limit_subject(request: Request, principal: AuthPrincipal | None) -> str:
@@ -100,12 +102,13 @@ def _rate_limit_subject(request: Request, principal: AuthPrincipal | None) -> st
         return explicit_client
     if principal is None:
         return "anonymous"
-    # 匿名部署下主语统一为 auth-disabled，会导致全局串扰；优先绑定IP。
     return request.client.host if request.client is not None else "anonymous"
+
 
 
 def _digest(raw: str) -> str:
     return hashlib.sha256(raw.encode("utf-8", errors="ignore")).hexdigest()[:24]
+
 
 
 def _redis_consume(window_key: str, rate_per_minute: int, now_epoch: int) -> tuple[bool, int] | None:
@@ -117,7 +120,8 @@ def _redis_consume(window_key: str, rate_per_minute: int, now_epoch: int) -> tup
     retry_after = max(1, window_seconds - (now_epoch - window_start) + 1)
     key = f"app:rate_limit:{window_key}:{window_start}"
     try:
-        current = int(redis_client.incr(key))
+        current_raw: Any = redis_client.incr(key)
+        current = int(current_raw)
         if current == 1:
             redis_client.expire(key, retry_after)
     except Exception:
@@ -125,6 +129,7 @@ def _redis_consume(window_key: str, rate_per_minute: int, now_epoch: int) -> tup
     if current <= rate_per_minute:
         return True, 0
     return False, retry_after
+
 
 
 def check_rate_limit(request: Request, principal: AuthPrincipal | None) -> tuple[bool, int, str]:
@@ -151,21 +156,10 @@ def check_rate_limit(request: Request, principal: AuthPrincipal | None) -> tuple
         return False, retry_ip, "ip"
 
     now = time.monotonic()
-
     with _LOCK:
         _cleanup_buckets(now)
-        allowed_subject, retry_subject = _refill_and_consume(
-            _SUBJECT_BUCKETS,
-            key=subject,
-            rate_per_minute=subject_rpm,
-            now=now,
-        )
-        allowed_ip, retry_ip = _refill_and_consume(
-            _IP_BUCKETS,
-            key=client_ip,
-            rate_per_minute=ip_rpm,
-            now=now,
-        )
+        allowed_subject, retry_subject = _refill_and_consume(_SUBJECT_BUCKETS, key=subject, rate_per_minute=subject_rpm, now=now)
+        allowed_ip, retry_ip = _refill_and_consume(_IP_BUCKETS, key=client_ip, rate_per_minute=ip_rpm, now=now)
 
     if allowed_subject and allowed_ip:
         return True, 0, "ok"
@@ -174,6 +168,7 @@ def check_rate_limit(request: Request, principal: AuthPrincipal | None) -> tuple
     if not allowed_subject:
         return False, retry_subject, "subject"
     return False, retry_ip, "ip"
+
 
 
 def reset_rate_limit_state() -> None:
