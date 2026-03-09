@@ -1,4 +1,4 @@
-# Crypto Grid Research Web
+# Grid Strategy Research Platform
 
 中文：面向永续合约网格策略研究的全功能 Web 工具，覆盖回测、参数优化、结构诊断、结果导出与实盘监测。  
 English: A full-featured web app for perpetual futures grid strategy research, covering backtesting, optimization, diagnostics, exports, and live monitoring.

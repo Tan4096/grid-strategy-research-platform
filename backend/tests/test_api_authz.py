@@ -354,7 +354,7 @@ def test_backtest_start_returns_structured_enqueue_error(monkeypatch: pytest.Mon
         lambda payload: (_ for _ in ()).throw(
             ArqEnqueueError(
                 "enqueue failed",
-                queue="crypto-grid",
+                queue="grid-strategy-research-platform",
                 backend="arq",
                 retryable=True,
             )
@@ -371,7 +371,7 @@ def test_backtest_start_returns_structured_enqueue_error(monkeypatch: pytest.Mon
     assert response.status_code == 503
     payload = response.json()
     assert payload["code"] == "TASK_ENQUEUE_FAILED"
-    assert payload["meta"]["queue"] == "crypto-grid"
+    assert payload["meta"]["queue"] == "grid-strategy-research-platform"
     assert payload["meta"]["backend"] == "arq"
     assert payload["meta"]["retryable"] is True
 
@@ -384,7 +384,7 @@ def test_optimization_start_returns_structured_enqueue_error(monkeypatch: pytest
         lambda payload: (_ for _ in ()).throw(
             ArqEnqueueError(
                 "enqueue failed",
-                queue="crypto-grid",
+                queue="grid-strategy-research-platform",
                 backend="arq",
                 retryable=False,
             )
@@ -407,7 +407,7 @@ def test_optimization_start_returns_structured_enqueue_error(monkeypatch: pytest
     payload = response.json()
     assert payload["code"] == "TASK_ENQUEUE_FAILED"
     assert payload["meta"] == {
-        "queue": "crypto-grid",
+        "queue": "grid-strategy-research-platform",
         "backend": "arq",
         "retryable": False,
     }

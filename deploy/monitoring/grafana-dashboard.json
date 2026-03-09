@@ -84,7 +84,7 @@
   "refresh": "10s",
   "schemaVersion": 38,
   "style": "dark",
-  "tags": ["crypto-grid", "backend"],
+  "tags": ["grid-strategy-research-platform", "backend"],
   "templating": {
     "list": []
   },
@@ -94,8 +94,8 @@
   },
   "timepicker": {},
   "timezone": "",
-  "title": "Crypto Grid API Overview",
-  "uid": "crypto-grid-api-overview",
+  "title": "Grid Strategy Research Platform API Overview",
+  "uid": "grid-strategy-research-platform-api-overview",
   "version": 1,
   "weekStart": ""
 }

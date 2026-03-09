@@ -1,0 +1,18 @@
+[Unit]
+Description=Grid Strategy Research Platform Backend
+After=network.target
+
+[Service]
+Type=simple
+User=CHANGE_ME
+Group=CHANGE_ME
+WorkingDirectory=/opt/grid-strategy-research-platform/backend
+EnvironmentFile=/opt/grid-strategy-research-platform/.env
+ExecStart=/usr/bin/env sh -lc '/opt/grid-strategy-research-platform/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port ${BACKEND_PORT} --workers ${BACKEND_WORKERS}'
+Restart=always
+RestartSec=3
+KillSignal=SIGINT
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

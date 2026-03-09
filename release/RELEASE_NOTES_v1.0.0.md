@@ -1,4 +1,4 @@
-# Crypto永续网格回测工具 v1.0.0
+# Grid Strategy Research Platform v1.0.0
 
 ## Release readiness
 - Frontend build: passed (`npm run build`)

@@ -8,7 +8,7 @@ from typing import Any
 
 
 def arq_queue_name() -> str:
-    return (os.getenv("APP_ARQ_QUEUE_NAME") or "crypto-grid").strip() or "crypto-grid"
+    return (os.getenv("APP_ARQ_QUEUE_NAME") or "grid-strategy-research-platform").strip() or "grid-strategy-research-platform"
 
 
 def arq_max_jobs() -> int:

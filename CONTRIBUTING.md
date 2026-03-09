@@ -1,6 +1,6 @@
 # Contributing / 参与贡献
 
-感谢你对 `Crypto Grid Research Web` 的关注。
+感谢你对 `Grid Strategy Research Platform` 的关注。
 
 ## Before you open a PR / 提交 PR 前
 

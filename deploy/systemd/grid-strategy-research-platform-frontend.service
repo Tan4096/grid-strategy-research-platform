@@ -1,13 +1,13 @@
 [Unit]
-Description=Crypto Grid Backtest Frontend
+Description=Grid Strategy Research Platform Frontend
 After=network.target
 
 [Service]
 Type=simple
 User=CHANGE_ME
 Group=CHANGE_ME
-WorkingDirectory=/opt/crypto-grid/frontend
-EnvironmentFile=/opt/crypto-grid/.env
+WorkingDirectory=/opt/grid-strategy-research-platform/frontend
+EnvironmentFile=/opt/grid-strategy-research-platform/.env
 ExecStart=/usr/bin/env sh -lc 'npm run preview -- --host 0.0.0.0 --port ${FRONTEND_PORT}'
 Restart=always
 RestartSec=3

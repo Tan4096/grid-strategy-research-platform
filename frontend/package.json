@@ -1,5 +1,5 @@
 {
-  "name": "btc-grid-backtest-frontend",
+  "name": "grid-strategy-research-platform-frontend",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -13,7 +13,8 @@
     "test:unit:watch": "vitest",
     "test:e2e": "playwright test",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
     "echarts": "5.6.0",
@@ -39,5 +40,8 @@
     "typescript": "5.5.4",
     "vite": "5.4.1",
     "vitest": "2.1.9"
+  },
+  "engines": {
+    "node": "20.x"
   }
 }
