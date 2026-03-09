@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Callable
 
 from app.core.schemas import CurvePoint, LiveAccountInfo, LiveRobotOverview, LiveSnapshotRequest, LiveSnapshotResponse, LiveWindowInfo

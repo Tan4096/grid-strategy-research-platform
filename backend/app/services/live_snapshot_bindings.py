@@ -4,23 +4,9 @@ from functools import partial
 import time
 
 from app.services.live_snapshot_cache import hash_api_key as _hash_api_key
-from app.services.live_snapshot_diagnostics import (
-    build_diag as _diag,
-    normalize_diagnostics as _normalize_diagnostics,
-    sanitize_error_message as _sanitize_error_message,
-)
+from app.services.live_snapshot_diagnostics import build_diag as _diag, sanitize_error_message as _sanitize_error_message
 from app.services.live_snapshot_http import query_string as _query_string, request_json as _request_json
-from app.services.live_snapshot_normalize import (
-    build_completeness as _build_completeness,
-    build_daily_breakdown as _build_daily_breakdown,
-    build_ledger_entries as _build_ledger_entries,
-    build_ledger_summary as _build_ledger_summary,
-    build_summary as _build_summary,
-    infer_grid as _infer_grid,
-    sort_and_dedupe_fills as _sort_and_dedupe_fills,
-    sort_and_dedupe_funding as _sort_and_dedupe_funding,
-    sort_orders as _sort_orders,
-)
+from app.services.live_snapshot_normalize import infer_grid as _infer_grid, sort_and_dedupe_fills as _sort_and_dedupe_fills, sort_and_dedupe_funding as _sort_and_dedupe_funding, sort_orders as _sort_orders
 from app.services import live_snapshot_clients as _clients_layer
 from app.services import live_snapshot_collectors as _collectors_layer
 from app.services import live_snapshot_pnl as _pnl_layer
@@ -81,8 +67,8 @@ _okx_bot_get_first_available = partial(_collectors_layer.okx_bot_get_first_avail
 _okx_bot_sub_order_paths = _collectors_layer.okx_bot_sub_order_paths
 _okx_bot_get_sub_orders = partial(_collectors_layer.okx_bot_get_sub_orders, normalize_datetime=_normalize_datetime, sub_order_paths=_okx_bot_sub_order_paths, bot_param_variants=partial(_collectors_layer.okx_bot_param_variants), retry_live_action=_retry_live_action, okx_signed_get=_okx_signed_get, first_present=_first_present, optional_datetime=_optional_datetime, coerce_optional_text=_coerce_optional_text)
 _build_okx_bot_position = partial(_collectors_layer.build_okx_bot_position, normalize_position_side=_normalize_position_side, first_present=_first_present, safe_float=_safe_float, optional_float=_optional_float)
-_build_okx_bot_open_orders = partial(_collectors_layer.build_okx_bot_open_orders, first_present=_first_present, safe_float=_safe_float, coerce_text=_coerce_text, normalize_order_side=_normalize_order_side, sort_orders=_sort_orders)
-_build_okx_bot_fills = partial(_collectors_layer.build_okx_bot_fills, first_present=_first_present, safe_float=_safe_float, coerce_text=_coerce_text, normalize_order_side=_normalize_order_side, sort_and_dedupe_fills=_sort_and_dedupe_fills)
+_build_okx_bot_open_orders = partial(_collectors_layer.build_okx_bot_open_orders, first_present=_first_present, safe_float=_safe_float, coerce_text=_coerce_text, normalize_order_side=_normalize_order_side, optional_datetime=_optional_datetime, sort_orders=_sort_orders)
+_build_okx_bot_fills = partial(_collectors_layer.build_okx_bot_fills, first_present=_first_present, safe_float=_safe_float, coerce_text=_coerce_text, normalize_order_side=_normalize_order_side, optional_datetime=_optional_datetime, sort_and_dedupe_fills=_sort_and_dedupe_fills)
 _build_okx_bot_funding_entries = partial(_collectors_layer.build_okx_bot_funding_entries, first_present=_first_present, safe_float=_safe_float, optional_datetime=_optional_datetime, sort_and_dedupe_funding=_sort_and_dedupe_funding)
 _resolve_effective_strategy_started_at = _collectors_layer.resolve_effective_strategy_started_at
 _resolve_okx_bot_created_at_from_list = partial(_collectors_layer.resolve_okx_bot_created_at_from_list, signed_get_robot_list=_okx_signed_get_robot_list, retry_live_action=_retry_live_action, build_robot_list_item=_build_live_robot_list_item, normalize_datetime=_normalize_datetime, utc_now=_utc_now, okx_bot_list_param_variants=_collectors_layer.okx_bot_param_variants)

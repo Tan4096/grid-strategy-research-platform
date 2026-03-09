@@ -4,7 +4,7 @@ import math
 from datetime import datetime
 from typing import Any, Iterable, Optional
 
-from app.core.schemas import DataSource, LiveDiagnostic, LiveExchange, LiveFill, LiveFundingEntry, LiveLedgerEntry, LiveSnapshotRequest, MarketParamsResponse
+from app.core.schemas import DataSource, LiveDiagnostic, LiveExchange, LiveFundingEntry, LiveLedgerEntry, LiveSnapshotRequest, MarketParamsResponse
 from app.services.live_snapshot_adapters import (
     binance_collect_records as adapter_binance_collect_records,
     binance_signed_get as adapter_binance_signed_get,
@@ -16,14 +16,13 @@ from app.services.live_snapshot_adapters import (
     okx_collect_ledger_entries as adapter_okx_collect_ledger_entries,
     okx_iso_timestamp as adapter_okx_iso_timestamp,
     okx_signed_get as adapter_okx_signed_get,
-    okx_split_billing_windows as adapter_okx_split_billing_windows,
 )
 from app.services.live_snapshot_exchange_adapters import (
     fetch_binance_snapshot as exchange_fetch_binance_snapshot,
     fetch_bybit_snapshot as exchange_fetch_bybit_snapshot,
     fetch_okx_snapshot as exchange_fetch_okx_snapshot,
 )
-from app.services.live_snapshot_types import ExchangeSnapshot, LiveSnapshotError
+from app.services.live_snapshot_types import ExchangeSnapshot
 from app.services.market_params import fetch_market_params
 from app.services.symbol_utils import normalize_symbol_for_source
 

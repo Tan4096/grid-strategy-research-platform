@@ -3,8 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from app.core.schemas import DataSource, GridSide, LiveDiagnostic, LiveFill, LiveFundingEntry, LiveInferredGrid, LiveLedgerEntry, LiveMonitoringInfo, LiveOpenOrder, LivePosition, LiveRobotListItem, LiveRobotListRequest, LiveRobotListResponse, LiveRobotOverview, LiveSnapshotRequest, LiveSnapshotSummary
-from app.services.data_loader import DataLoadError
+from app.core.schemas import DataSource, GridSide, LiveFill, LiveFundingEntry, LiveInferredGrid, LiveMonitoringInfo, LiveOpenOrder, LivePosition, LiveRobotListItem, LiveRobotListRequest, LiveRobotListResponse, LiveRobotOverview, LiveSnapshotRequest, LiveSnapshotSummary
 from app.services.live_snapshot_adapters import (
     okx_bot_get_first_available as adapter_okx_bot_get_first_available,
     okx_bot_get_sub_orders as adapter_okx_bot_get_sub_orders,
@@ -121,9 +120,7 @@ def fetch_okx_robot_list(
     last_error: LiveSnapshotError | None = None
 
     def ingest(raw_items: list[dict[str, Any]], *, include_non_running: bool) -> None:
-        for raw in raw_items if isinstance(raw_items, list) else []:
-            if not isinstance(raw, dict):
-                continue
+        for raw in raw_items:
             built = build_robot_list_item(raw)
             if built is None:
                 continue
@@ -153,7 +150,7 @@ def fetch_okx_robot_list(
                 continue
 
     fetch_path("/api/v5/tradingBot/grid/orders-algo-pending", include_non_running=False)
-    include_recent = (payload.scope or "running") == "recent"
+    include_recent = payload.scope == "recent"
     if include_recent:
         fetch_path("/api/v5/tradingBot/grid/orders-algo-history", include_non_running=True)
 
@@ -168,7 +165,7 @@ def fetch_okx_robot_list(
             item.algo_id,
         ),
     )
-    response = LiveRobotListResponse(scope=payload.scope or "running", items=items)
+    response = LiveRobotListResponse(scope=payload.scope, items=items)
     cache_set(cache_store, cache_key, response)
     return response
 
@@ -230,11 +227,9 @@ def build_okx_bot_position(detail: dict[str, Any], *, normalize_position_side, f
 
 
 
-def build_okx_bot_open_orders(items: list[dict[str, Any]], *, first_present, safe_float, coerce_text, normalize_order_side, sort_orders) -> list[LiveOpenOrder]:
+def build_okx_bot_open_orders(items: list[dict[str, Any]], *, first_present, safe_float, coerce_text, normalize_order_side, optional_datetime, sort_orders) -> list[LiveOpenOrder]:
     orders: list[LiveOpenOrder] = []
     for item in items:
-        if not isinstance(item, dict):
-            continue
         price = safe_float(first_present(item, "px", "price"), fallback=0.0)
         quantity = abs(safe_float(first_present(item, "sz", "quantity", "orderSz"), fallback=0.0))
         if price <= 0 or quantity <= 0:
@@ -249,18 +244,16 @@ def build_okx_bot_open_orders(items: list[dict[str, Any]], *, first_present, saf
                 filled_quantity=abs(safe_float(first_present(item, "accFillSz", "filledSz"), fallback=0.0)),
                 reduce_only=bool(first_present(item, "reduceOnly")),
                 status=coerce_text(first_present(item, "state", "status")) or "live",
-                timestamp=coerce_text(first_present(item, "cTime", "uTime", "timestamp")) or datetime.now(timezone.utc).isoformat(),
+                timestamp=optional_datetime(first_present(item, "cTime", "uTime", "timestamp")) or datetime.now(timezone.utc),
             )
         )
     return sort_orders(orders)
 
 
 
-def build_okx_bot_fills(items: list[dict[str, Any]], *, first_present, safe_float, coerce_text, normalize_order_side, sort_and_dedupe_fills) -> list[LiveFill]:
+def build_okx_bot_fills(items: list[dict[str, Any]], *, first_present, safe_float, coerce_text, normalize_order_side, optional_datetime, sort_and_dedupe_fills) -> list[LiveFill]:
     fills: list[LiveFill] = []
     for item in items:
-        if not isinstance(item, dict):
-            continue
         trade_id = coerce_text(first_present(item, "tradeId", "fillId", "billId"))
         if not trade_id:
             continue
@@ -275,7 +268,7 @@ def build_okx_bot_fills(items: list[dict[str, Any]], *, first_present, safe_floa
                 fee=abs(safe_float(first_present(item, "fee", "fillFee"), fallback=0.0)),
                 fee_currency=coerce_text(first_present(item, "feeCcy", "feeCurrency")) or None,
                 is_maker=None,
-                timestamp=coerce_text(first_present(item, "fillTime", "cTime", "timestamp")) or datetime.now(timezone.utc).isoformat(),
+                timestamp=optional_datetime(first_present(item, "fillTime", "cTime", "timestamp")) or datetime.now(timezone.utc),
             )
         )
     return sort_and_dedupe_fills(fills)
