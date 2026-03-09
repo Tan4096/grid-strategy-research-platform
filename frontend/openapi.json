@@ -1,0 +1,3505 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Crypto永续网格回测工具 API",
+    "description": "Professional crypto perpetual futures grid strategy backtesting API",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/v1/health": {
+      "get": {
+        "summary": "Health",
+        "operationId": "health_api_v1_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Health Api V1 Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/metrics": {
+      "get": {
+        "summary": "Metrics Api",
+        "operationId": "metrics_api_api_v1_metrics_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/backtest/defaults": {
+      "get": {
+        "summary": "Get Defaults",
+        "operationId": "get_defaults_api_v1_backtest_defaults_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestRequest-Output"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/backtest/run": {
+      "post": {
+        "summary": "Run Backtest Api",
+        "operationId": "run_backtest_api_api_v1_backtest_run_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BacktestRequest-Input"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/backtest/start": {
+      "post": {
+        "summary": "Start Backtest Api",
+        "operationId": "start_backtest_api_api_v1_backtest_start_post",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BacktestRequest-Input"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestStartResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/backtest/anchor-price": {
+      "post": {
+        "summary": "Backtest Anchor Price Api",
+        "operationId": "backtest_anchor_price_api_api_v1_backtest_anchor_price_post",
+        "parameters": [
+          {
+            "name": "anchor_mode",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/AnchorMode"
+                }
+              ],
+              "default": "BACKTEST_START_PRICE",
+              "title": "Anchor Mode"
+            }
+          },
+          {
+            "name": "custom_anchor_price",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "exclusiveMinimum": 0.0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Custom Anchor Price"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DataConfig"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestAnchorPriceResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/backtest/{job_id}": {
+      "get": {
+        "summary": "Backtest Status Api",
+        "operationId": "backtest_status_api_api_v1_backtest__job_id__get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestStatusResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/jobs/{job_id}/stream": {
+      "get": {
+        "summary": "Job Stream Api",
+        "operationId": "job_stream_api_api_v1_jobs__job_id__stream_get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "job_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/JobStreamType"
+                }
+              ],
+              "default": "auto",
+              "title": "Job Type"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/backtest/{job_id}/cancel": {
+      "post": {
+        "summary": "Backtest Cancel Api",
+        "operationId": "backtest_cancel_api_api_v1_backtest__job_id__cancel_post",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Backtest Cancel Api Api V1 Backtest  Job Id  Cancel Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/market/params": {
+      "get": {
+        "summary": "Market Params Api",
+        "operationId": "market_params_api_api_v1_market_params_get",
+        "parameters": [
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/DataSource"
+                }
+              ],
+              "default": "binance",
+              "title": "Source"
+            }
+          },
+          {
+            "name": "symbol",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "BTCUSDT",
+              "title": "Symbol"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketParamsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/optimization/start": {
+      "post": {
+        "summary": "Start Optimization Api",
+        "operationId": "start_optimization_api_api_v1_optimization_start_post",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OptimizationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OptimizationStartResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/optimization/{job_id}": {
+      "get": {
+        "summary": "Optimization Status Api",
+        "operationId": "optimization_status_api_api_v1_optimization__job_id__get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 20,
+              "title": "Page Size"
+            }
+          },
+          {
+            "name": "sort_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "robust_score",
+              "title": "Sort By"
+            }
+          },
+          {
+            "name": "sort_order",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/SortOrder"
+                }
+              ],
+              "default": "desc",
+              "title": "Sort Order"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OptimizationStatusResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/optimization/{job_id}/rows": {
+      "get": {
+        "summary": "Optimization Rows Api",
+        "operationId": "optimization_rows_api_api_v1_optimization__job_id__rows_get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 20,
+              "title": "Page Size"
+            }
+          },
+          {
+            "name": "sort_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "robust_score",
+              "title": "Sort By"
+            }
+          },
+          {
+            "name": "sort_order",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/SortOrder"
+                }
+              ],
+              "default": "desc",
+              "title": "Sort Order"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OptimizationRowsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/optimization/{job_id}/heatmap": {
+      "get": {
+        "summary": "Optimization Heatmap Api",
+        "operationId": "optimization_heatmap_api_api_v1_optimization__job_id__heatmap_get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OptimizationHeatmapResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/optimization/{job_id}/progress": {
+      "get": {
+        "summary": "Optimization Progress Api",
+        "operationId": "optimization_progress_api_api_v1_optimization__job_id__progress_get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OptimizationProgressResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/optimization-history": {
+      "get": {
+        "summary": "Optimization History Api",
+        "operationId": "optimization_history_api_api_v1_optimization_history_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 30,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/OptimizationJobStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OptimizationHistoryPageResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Optimization History Clear Api",
+        "operationId": "optimization_history_clear_api_api_v1_optimization_history_delete",
+        "parameters": [
+          {
+            "name": "X-Confirm-Action",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "integer"
+                  },
+                  "title": "Response Optimization History Clear Api Api V1 Optimization History Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/optimization-history/selected": {
+      "delete": {
+        "summary": "Optimization History Selected Clear Api",
+        "operationId": "optimization_history_selected_clear_api_api_v1_optimization_history_selected_delete",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "X-Confirm-Action",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          },
+          {
+            "name": "X-Confirm-Count",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Count"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Optimization History Selected Clear Api Api V1 Optimization History Selected Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/optimization-history/restore-selected": {
+      "post": {
+        "summary": "Optimization History Selected Restore Api",
+        "operationId": "optimization_history_selected_restore_api_api_v1_optimization_history_restore_selected_post",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Optimization History Selected Restore Api Api V1 Optimization History Restore Selected Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/optimization/{job_id}/cancel": {
+      "post": {
+        "summary": "Optimization Cancel Api",
+        "operationId": "optimization_cancel_api_api_v1_optimization__job_id__cancel_post",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Optimization Cancel Api Api V1 Optimization  Job Id  Cancel Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/optimization/{job_id}/restart": {
+      "post": {
+        "summary": "Optimization Restart Api",
+        "operationId": "optimization_restart_api_api_v1_optimization__job_id__restart_post",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OptimizationStartResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/optimization/{job_id}/export": {
+      "get": {
+        "summary": "Optimization Export Api",
+        "operationId": "optimization_export_api_api_v1_optimization__job_id__export_get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "sort_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "robust_score",
+              "title": "Sort By"
+            }
+          },
+          {
+            "name": "sort_order",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/SortOrder"
+                }
+              ],
+              "default": "desc",
+              "title": "Sort Order"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AnchorMode": {
+        "type": "string",
+        "enum": [
+          "BACKTEST_START_PRICE",
+          "BACKTEST_AVG_PRICE",
+          "CURRENT_PRICE",
+          "CUSTOM_PRICE"
+        ],
+        "title": "AnchorMode"
+      },
+      "BacktestAnchorPriceResponse": {
+        "properties": {
+          "anchor_price": {
+            "type": "number",
+            "title": "Anchor Price"
+          },
+          "anchor_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Anchor Time"
+          },
+          "anchor_source": {
+            "type": "string",
+            "enum": [
+              "first_candle_close",
+              "avg_candle_close",
+              "last_candle_close",
+              "custom_price"
+            ],
+            "title": "Anchor Source"
+          },
+          "candle_count": {
+            "type": "integer",
+            "title": "Candle Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "anchor_price",
+          "anchor_time",
+          "anchor_source",
+          "candle_count"
+        ],
+        "title": "BacktestAnchorPriceResponse"
+      },
+      "BacktestJobMeta": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/BacktestJobStatus"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "progress": {
+            "type": "number",
+            "title": "Progress",
+            "default": 0.0
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "status",
+          "created_at"
+        ],
+        "title": "BacktestJobMeta"
+      },
+      "BacktestJobStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "running",
+          "completed",
+          "failed",
+          "cancelled"
+        ],
+        "title": "BacktestJobStatus"
+      },
+      "BacktestRequest-Input": {
+        "properties": {
+          "strategy": {
+            "$ref": "#/components/schemas/StrategyConfig"
+          },
+          "data": {
+            "$ref": "#/components/schemas/DataConfig"
+          }
+        },
+        "type": "object",
+        "required": [
+          "strategy"
+        ],
+        "title": "BacktestRequest"
+      },
+      "BacktestRequest-Output": {
+        "properties": {
+          "strategy": {
+            "$ref": "#/components/schemas/StrategyConfig"
+          },
+          "data": {
+            "$ref": "#/components/schemas/DataConfig"
+          }
+        },
+        "type": "object",
+        "required": [
+          "strategy"
+        ],
+        "title": "BacktestRequest"
+      },
+      "BacktestResult": {
+        "properties": {
+          "summary": {
+            "$ref": "#/components/schemas/BacktestSummary"
+          },
+          "candles": {
+            "items": {
+              "$ref": "#/components/schemas/Candle"
+            },
+            "type": "array",
+            "title": "Candles"
+          },
+          "grid_lines": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Grid Lines"
+          },
+          "equity_curve": {
+            "items": {
+              "$ref": "#/components/schemas/CurvePoint"
+            },
+            "type": "array",
+            "title": "Equity Curve"
+          },
+          "drawdown_curve": {
+            "items": {
+              "$ref": "#/components/schemas/CurvePoint"
+            },
+            "type": "array",
+            "title": "Drawdown Curve"
+          },
+          "margin_ratio_curve": {
+            "items": {
+              "$ref": "#/components/schemas/CurvePoint"
+            },
+            "type": "array",
+            "title": "Margin Ratio Curve"
+          },
+          "leverage_usage_curve": {
+            "items": {
+              "$ref": "#/components/schemas/CurvePoint"
+            },
+            "type": "array",
+            "title": "Leverage Usage Curve"
+          },
+          "liquidation_price_curve": {
+            "items": {
+              "$ref": "#/components/schemas/CurvePoint"
+            },
+            "type": "array",
+            "title": "Liquidation Price Curve"
+          },
+          "trades": {
+            "items": {
+              "$ref": "#/components/schemas/TradeEvent"
+            },
+            "type": "array",
+            "title": "Trades"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/EventLog"
+            },
+            "type": "array",
+            "title": "Events"
+          },
+          "analysis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StrategyAnalysis"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scoring": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StrategyScoring"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "summary",
+          "candles",
+          "grid_lines",
+          "equity_curve",
+          "drawdown_curve",
+          "margin_ratio_curve",
+          "leverage_usage_curve",
+          "liquidation_price_curve",
+          "trades",
+          "events"
+        ],
+        "title": "BacktestResult"
+      },
+      "BacktestStartResponse": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/BacktestJobStatus"
+          },
+          "idempotency_reused": {
+            "type": "boolean",
+            "title": "Idempotency Reused",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "status"
+        ],
+        "title": "BacktestStartResponse"
+      },
+      "BacktestStatusResponse": {
+        "properties": {
+          "job": {
+            "$ref": "#/components/schemas/BacktestJobMeta"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BacktestResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "job"
+        ],
+        "title": "BacktestStatusResponse"
+      },
+      "BacktestSummary": {
+        "properties": {
+          "initial_margin": {
+            "type": "number",
+            "title": "Initial Margin"
+          },
+          "final_equity": {
+            "type": "number",
+            "title": "Final Equity"
+          },
+          "total_return_usdt": {
+            "type": "number",
+            "title": "Total Return Usdt"
+          },
+          "total_return_pct": {
+            "type": "number",
+            "title": "Total Return Pct"
+          },
+          "annualized_return_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Annualized Return Pct"
+          },
+          "average_round_profit": {
+            "type": "number",
+            "title": "Average Round Profit"
+          },
+          "max_drawdown_pct": {
+            "type": "number",
+            "title": "Max Drawdown Pct"
+          },
+          "max_single_loss": {
+            "type": "number",
+            "title": "Max Single Loss"
+          },
+          "stop_loss_count": {
+            "type": "integer",
+            "title": "Stop Loss Count"
+          },
+          "liquidation_count": {
+            "type": "integer",
+            "title": "Liquidation Count"
+          },
+          "full_grid_profit_count": {
+            "type": "integer",
+            "title": "Full Grid Profit Count"
+          },
+          "win_rate": {
+            "type": "number",
+            "title": "Win Rate"
+          },
+          "average_holding_hours": {
+            "type": "number",
+            "title": "Average Holding Hours"
+          },
+          "total_closed_trades": {
+            "type": "integer",
+            "title": "Total Closed Trades"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "fees_paid": {
+            "type": "number",
+            "title": "Fees Paid"
+          },
+          "funding_paid": {
+            "type": "number",
+            "title": "Funding Paid"
+          },
+          "use_base_position": {
+            "type": "boolean",
+            "title": "Use Base Position"
+          },
+          "base_grid_count": {
+            "type": "integer",
+            "title": "Base Grid Count"
+          },
+          "initial_position_size": {
+            "type": "number",
+            "title": "Initial Position Size"
+          },
+          "max_possible_loss_usdt": {
+            "type": "number",
+            "title": "Max Possible Loss Usdt"
+          }
+        },
+        "type": "object",
+        "required": [
+          "initial_margin",
+          "final_equity",
+          "total_return_usdt",
+          "total_return_pct",
+          "annualized_return_pct",
+          "average_round_profit",
+          "max_drawdown_pct",
+          "max_single_loss",
+          "stop_loss_count",
+          "liquidation_count",
+          "full_grid_profit_count",
+          "win_rate",
+          "average_holding_hours",
+          "total_closed_trades",
+          "status",
+          "fees_paid",
+          "funding_paid",
+          "use_base_position",
+          "base_grid_count",
+          "initial_position_size",
+          "max_possible_loss_usdt"
+        ],
+        "title": "BacktestSummary"
+      },
+      "Candle": {
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Timestamp"
+          },
+          "open": {
+            "type": "number",
+            "title": "Open"
+          },
+          "high": {
+            "type": "number",
+            "title": "High"
+          },
+          "low": {
+            "type": "number",
+            "title": "Low"
+          },
+          "close": {
+            "type": "number",
+            "title": "Close"
+          },
+          "volume": {
+            "type": "number",
+            "title": "Volume",
+            "default": 0.0
+          }
+        },
+        "type": "object",
+        "required": [
+          "timestamp",
+          "open",
+          "high",
+          "low",
+          "close"
+        ],
+        "title": "Candle"
+      },
+      "CurvePoint": {
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Timestamp"
+          },
+          "value": {
+            "type": "number",
+            "title": "Value"
+          }
+        },
+        "type": "object",
+        "required": [
+          "timestamp",
+          "value"
+        ],
+        "title": "CurvePoint"
+      },
+      "DataConfig": {
+        "properties": {
+          "source": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DataSource"
+              }
+            ],
+            "default": "binance"
+          },
+          "symbol": {
+            "type": "string",
+            "title": "Symbol",
+            "default": "BTCUSDT"
+          },
+          "interval": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Interval"
+              }
+            ],
+            "default": "1h"
+          },
+          "lookback_days": {
+            "type": "integer",
+            "maximum": 365.0,
+            "minimum": 1.0,
+            "title": "Lookback Days",
+            "default": 14
+          },
+          "start_time": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Time"
+          },
+          "end_time": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Time"
+          },
+          "csv_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Csv Content"
+          }
+        },
+        "type": "object",
+        "title": "DataConfig"
+      },
+      "DataSource": {
+        "type": "string",
+        "enum": [
+          "binance",
+          "bybit",
+          "okx",
+          "csv"
+        ],
+        "title": "DataSource"
+      },
+      "EventLog": {
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Timestamp"
+          },
+          "event_type": {
+            "type": "string",
+            "title": "Event Type"
+          },
+          "price": {
+            "type": "number",
+            "title": "Price"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "payload": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payload"
+          }
+        },
+        "type": "object",
+        "required": [
+          "timestamp",
+          "event_type",
+          "price",
+          "message"
+        ],
+        "title": "EventLog"
+      },
+      "GridSide": {
+        "type": "string",
+        "enum": [
+          "long",
+          "short"
+        ],
+        "title": "GridSide"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HeatmapCell": {
+        "properties": {
+          "leverage": {
+            "type": "number",
+            "title": "Leverage"
+          },
+          "grids": {
+            "type": "integer",
+            "title": "Grids"
+          },
+          "value": {
+            "type": "number",
+            "title": "Value"
+          },
+          "use_base_position": {
+            "type": "boolean",
+            "title": "Use Base Position"
+          },
+          "base_grid_count": {
+            "type": "integer",
+            "title": "Base Grid Count"
+          },
+          "initial_position_size": {
+            "type": "number",
+            "title": "Initial Position Size"
+          },
+          "anchor_price": {
+            "type": "number",
+            "title": "Anchor Price"
+          },
+          "lower_price": {
+            "type": "number",
+            "title": "Lower Price"
+          },
+          "upper_price": {
+            "type": "number",
+            "title": "Upper Price"
+          },
+          "stop_price": {
+            "type": "number",
+            "title": "Stop Price"
+          }
+        },
+        "type": "object",
+        "required": [
+          "leverage",
+          "grids",
+          "value",
+          "use_base_position",
+          "base_grid_count",
+          "initial_position_size",
+          "anchor_price",
+          "lower_price",
+          "upper_price",
+          "stop_price"
+        ],
+        "title": "HeatmapCell"
+      },
+      "Interval": {
+        "type": "string",
+        "enum": [
+          "1m",
+          "3m",
+          "5m",
+          "15m",
+          "30m",
+          "1h",
+          "2h",
+          "4h",
+          "6h",
+          "8h",
+          "12h",
+          "1d"
+        ],
+        "title": "Interval"
+      },
+      "JobStreamType": {
+        "type": "string",
+        "enum": [
+          "auto",
+          "backtest",
+          "optimization"
+        ],
+        "title": "JobStreamType"
+      },
+      "MarketParamsResponse": {
+        "properties": {
+          "source": {
+            "$ref": "#/components/schemas/DataSource"
+          },
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "maker_fee_rate": {
+            "type": "number",
+            "title": "Maker Fee Rate"
+          },
+          "taker_fee_rate": {
+            "type": "number",
+            "title": "Taker Fee Rate"
+          },
+          "funding_rate_per_8h": {
+            "type": "number",
+            "title": "Funding Rate Per 8H"
+          },
+          "funding_interval_hours": {
+            "type": "integer",
+            "title": "Funding Interval Hours"
+          },
+          "price_tick_size": {
+            "type": "number",
+            "title": "Price Tick Size"
+          },
+          "quantity_step_size": {
+            "type": "number",
+            "title": "Quantity Step Size"
+          },
+          "min_notional": {
+            "type": "number",
+            "title": "Min Notional"
+          },
+          "fetched_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Fetched At"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "symbol",
+          "maker_fee_rate",
+          "taker_fee_rate",
+          "funding_rate_per_8h",
+          "funding_interval_hours",
+          "price_tick_size",
+          "quantity_step_size",
+          "min_notional",
+          "fetched_at"
+        ],
+        "title": "MarketParamsResponse"
+      },
+      "OptimizationConfig": {
+        "properties": {
+          "optimization_mode": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OptimizationMode"
+              }
+            ],
+            "default": "random_pruned"
+          },
+          "leverage": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SweepRange"
+              }
+            ],
+            "default": {
+              "enabled": true,
+              "start": 5.0,
+              "end": 12.0,
+              "step": 1.0
+            }
+          },
+          "grids": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SweepRange"
+              }
+            ],
+            "default": {
+              "enabled": true,
+              "start": 4.0,
+              "end": 12.0,
+              "step": 1.0
+            }
+          },
+          "band_width_pct": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SweepRange"
+              }
+            ],
+            "default": {
+              "enabled": true,
+              "values": [
+                5.0,
+                8.0,
+                10.0
+              ]
+            }
+          },
+          "stop_loss_ratio_pct": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SweepRange"
+              }
+            ],
+            "default": {
+              "enabled": true,
+              "values": [
+                0.5,
+                1.0,
+                2.0
+              ]
+            }
+          },
+          "optimize_base_position": {
+            "type": "boolean",
+            "title": "Optimize Base Position",
+            "default": false
+          },
+          "anchor_mode": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AnchorMode"
+              }
+            ],
+            "default": "BACKTEST_START_PRICE"
+          },
+          "custom_anchor_price": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Custom Anchor Price"
+          },
+          "target": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OptimizationTarget"
+              }
+            ],
+            "default": "return_drawdown_ratio"
+          },
+          "custom_score_expr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Custom Score Expr"
+          },
+          "min_closed_trades": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Min Closed Trades",
+            "default": 0
+          },
+          "max_drawdown_pct_limit": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Drawdown Pct Limit"
+          },
+          "max_allowed_loss_usdt": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Allowed Loss Usdt"
+          },
+          "require_positive_return": {
+            "type": "boolean",
+            "title": "Require Positive Return",
+            "default": false
+          },
+          "robust_validation_weight": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Robust Validation Weight",
+            "default": 0.7
+          },
+          "robust_gap_penalty": {
+            "type": "number",
+            "maximum": 10.0,
+            "minimum": 0.0,
+            "title": "Robust Gap Penalty",
+            "default": 0.2
+          },
+          "max_combinations": {
+            "type": "integer",
+            "maximum": 200000.0,
+            "minimum": 1.0,
+            "title": "Max Combinations",
+            "default": 500
+          },
+          "max_trials": {
+            "type": "integer",
+            "maximum": 200000.0,
+            "minimum": 1.0,
+            "title": "Max Trials",
+            "default": 2000
+          },
+          "auto_limit_combinations": {
+            "type": "boolean",
+            "title": "Auto Limit Combinations",
+            "default": true
+          },
+          "max_workers": {
+            "type": "integer",
+            "maximum": 64.0,
+            "minimum": 1.0,
+            "title": "Max Workers"
+          },
+          "batch_size": {
+            "type": "integer",
+            "maximum": 5000.0,
+            "minimum": 50.0,
+            "title": "Batch Size",
+            "default": 300
+          },
+          "chunk_size": {
+            "type": "integer",
+            "maximum": 2048.0,
+            "minimum": 1.0,
+            "title": "Chunk Size",
+            "default": 64
+          },
+          "warmup_ratio": {
+            "type": "number",
+            "maximum": 0.9,
+            "minimum": 0.0,
+            "title": "Warmup Ratio",
+            "default": 0.15
+          },
+          "random_seed": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Random Seed"
+          },
+          "resume_study": {
+            "type": "boolean",
+            "title": "Resume Study",
+            "default": false
+          },
+          "resume_study_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resume Study Key"
+          },
+          "bayesian_adaptive_fallback_enabled": {
+            "type": "boolean",
+            "title": "Bayesian Adaptive Fallback Enabled",
+            "default": true
+          },
+          "bayesian_adaptive_slowdown_factor": {
+            "type": "number",
+            "maximum": 10.0,
+            "minimum": 1.1,
+            "title": "Bayesian Adaptive Slowdown Factor",
+            "default": 1.8
+          },
+          "bayesian_adaptive_window_batches": {
+            "type": "integer",
+            "maximum": 20.0,
+            "minimum": 2.0,
+            "title": "Bayesian Adaptive Window Batches",
+            "default": 4
+          },
+          "bayesian_adaptive_min_trials_after_warmup": {
+            "type": "integer",
+            "maximum": 200000.0,
+            "minimum": 1.0,
+            "title": "Bayesian Adaptive Min Trials After Warmup",
+            "default": 64
+          },
+          "enable_early_pruning": {
+            "type": "boolean",
+            "title": "Enable Early Pruning",
+            "default": true
+          },
+          "drawdown_prune_multiplier": {
+            "type": "number",
+            "maximum": 10.0,
+            "minimum": 1.0,
+            "title": "Drawdown Prune Multiplier",
+            "default": 1.5
+          },
+          "enable_profit_pruning": {
+            "type": "boolean",
+            "title": "Enable Profit Pruning",
+            "default": true
+          },
+          "pruning_steps": {
+            "type": "integer",
+            "maximum": 5.0,
+            "minimum": 1.0,
+            "title": "Pruning Steps",
+            "default": 2
+          },
+          "enable_topk_refine": {
+            "type": "boolean",
+            "title": "Enable Topk Refine",
+            "default": false
+          },
+          "topk_refine_k": {
+            "type": "integer",
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "title": "Topk Refine K",
+            "default": 5
+          },
+          "refine_leverage_delta": {
+            "type": "integer",
+            "maximum": 10.0,
+            "minimum": 1.0,
+            "title": "Refine Leverage Delta",
+            "default": 1
+          },
+          "refine_grids_delta": {
+            "type": "integer",
+            "maximum": 10.0,
+            "minimum": 1.0,
+            "title": "Refine Grids Delta",
+            "default": 1
+          },
+          "refine_band_delta_pct": {
+            "type": "number",
+            "maximum": 20.0,
+            "minimum": 0.0,
+            "title": "Refine Band Delta Pct",
+            "default": 0.5
+          },
+          "refine_stop_delta_pct": {
+            "type": "number",
+            "maximum": 20.0,
+            "minimum": 0.0,
+            "title": "Refine Stop Delta Pct",
+            "default": 0.25
+          },
+          "walk_forward_enabled": {
+            "type": "boolean",
+            "title": "Walk Forward Enabled",
+            "default": true
+          },
+          "train_ratio": {
+            "type": "number",
+            "exclusiveMaximum": 0.9,
+            "exclusiveMinimum": 0.1,
+            "title": "Train Ratio",
+            "default": 0.5
+          }
+        },
+        "type": "object",
+        "title": "OptimizationConfig"
+      },
+      "OptimizationHeatmapResponse": {
+        "properties": {
+          "job": {
+            "$ref": "#/components/schemas/OptimizationJobMeta"
+          },
+          "target": {
+            "$ref": "#/components/schemas/OptimizationTarget"
+          },
+          "heatmap": {
+            "items": {
+              "$ref": "#/components/schemas/HeatmapCell"
+            },
+            "type": "array",
+            "title": "Heatmap",
+            "default": []
+          },
+          "best_row": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OptimizationResultRow"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "job",
+          "target"
+        ],
+        "title": "OptimizationHeatmapResponse"
+      },
+      "OptimizationHistoryPageResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OptimizationProgressResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "OptimizationHistoryPageResponse"
+      },
+      "OptimizationJobMeta": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/OptimizationJobStatus"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "progress": {
+            "type": "number",
+            "title": "Progress",
+            "default": 0.0
+          },
+          "total_steps": {
+            "type": "integer",
+            "title": "Total Steps",
+            "default": 0
+          },
+          "completed_steps": {
+            "type": "integer",
+            "title": "Completed Steps",
+            "default": 0
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "total_combinations": {
+            "type": "integer",
+            "title": "Total Combinations",
+            "default": 0
+          },
+          "trials_completed": {
+            "type": "integer",
+            "title": "Trials Completed",
+            "default": 0
+          },
+          "trials_pruned": {
+            "type": "integer",
+            "title": "Trials Pruned",
+            "default": 0
+          },
+          "pruning_ratio": {
+            "type": "number",
+            "title": "Pruning Ratio",
+            "default": 0.0
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "status",
+          "created_at"
+        ],
+        "title": "OptimizationJobMeta"
+      },
+      "OptimizationJobStatus": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "running",
+          "completed",
+          "failed",
+          "cancelled"
+        ],
+        "title": "OptimizationJobStatus"
+      },
+      "OptimizationMode": {
+        "type": "string",
+        "enum": [
+          "grid",
+          "bayesian",
+          "random_pruned"
+        ],
+        "title": "OptimizationMode"
+      },
+      "OptimizationProgressPoint": {
+        "properties": {
+          "step": {
+            "type": "integer",
+            "title": "Step"
+          },
+          "value": {
+            "type": "number",
+            "title": "Value"
+          }
+        },
+        "type": "object",
+        "required": [
+          "step",
+          "value"
+        ],
+        "title": "OptimizationProgressPoint"
+      },
+      "OptimizationProgressResponse": {
+        "properties": {
+          "job": {
+            "$ref": "#/components/schemas/OptimizationJobMeta"
+          },
+          "target": {
+            "$ref": "#/components/schemas/OptimizationTarget"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job",
+          "target"
+        ],
+        "title": "OptimizationProgressResponse"
+      },
+      "OptimizationRequest": {
+        "properties": {
+          "base_strategy": {
+            "$ref": "#/components/schemas/StrategyConfig"
+          },
+          "data": {
+            "$ref": "#/components/schemas/DataConfig"
+          },
+          "optimization": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OptimizationConfig"
+              }
+            ],
+            "default": {
+              "optimization_mode": "random_pruned",
+              "leverage": {
+                "enabled": true,
+                "end": 12.0,
+                "start": 5.0,
+                "step": 1.0
+              },
+              "grids": {
+                "enabled": true,
+                "end": 12.0,
+                "start": 4.0,
+                "step": 1.0
+              },
+              "band_width_pct": {
+                "enabled": true,
+                "values": [
+                  5.0,
+                  8.0,
+                  10.0
+                ]
+              },
+              "stop_loss_ratio_pct": {
+                "enabled": true,
+                "values": [
+                  0.5,
+                  1.0,
+                  2.0
+                ]
+              },
+              "optimize_base_position": false,
+              "anchor_mode": "BACKTEST_START_PRICE",
+              "target": "return_drawdown_ratio",
+              "min_closed_trades": 0,
+              "require_positive_return": false,
+              "robust_validation_weight": 0.7,
+              "robust_gap_penalty": 0.2,
+              "max_combinations": 500,
+              "max_trials": 2000,
+              "auto_limit_combinations": true,
+              "max_workers": 10,
+              "batch_size": 300,
+              "chunk_size": 64,
+              "warmup_ratio": 0.15,
+              "resume_study": false,
+              "bayesian_adaptive_fallback_enabled": true,
+              "bayesian_adaptive_slowdown_factor": 1.8,
+              "bayesian_adaptive_window_batches": 4,
+              "bayesian_adaptive_min_trials_after_warmup": 64,
+              "enable_early_pruning": true,
+              "drawdown_prune_multiplier": 1.5,
+              "enable_profit_pruning": true,
+              "pruning_steps": 2,
+              "enable_topk_refine": false,
+              "topk_refine_k": 5,
+              "refine_leverage_delta": 1,
+              "refine_grids_delta": 1,
+              "refine_band_delta_pct": 0.5,
+              "refine_stop_delta_pct": 0.25,
+              "walk_forward_enabled": true,
+              "train_ratio": 0.5
+            }
+          }
+        },
+        "type": "object",
+        "required": [
+          "base_strategy",
+          "data"
+        ],
+        "title": "OptimizationRequest"
+      },
+      "OptimizationResultRow": {
+        "properties": {
+          "row_id": {
+            "type": "integer",
+            "title": "Row Id"
+          },
+          "leverage": {
+            "type": "number",
+            "title": "Leverage"
+          },
+          "grids": {
+            "type": "integer",
+            "title": "Grids"
+          },
+          "use_base_position": {
+            "type": "boolean",
+            "title": "Use Base Position"
+          },
+          "base_grid_count": {
+            "type": "integer",
+            "title": "Base Grid Count"
+          },
+          "initial_position_size": {
+            "type": "number",
+            "title": "Initial Position Size"
+          },
+          "anchor_price": {
+            "type": "number",
+            "title": "Anchor Price"
+          },
+          "lower_price": {
+            "type": "number",
+            "title": "Lower Price"
+          },
+          "upper_price": {
+            "type": "number",
+            "title": "Upper Price"
+          },
+          "stop_price": {
+            "type": "number",
+            "title": "Stop Price"
+          },
+          "band_width_pct": {
+            "type": "number",
+            "title": "Band Width Pct"
+          },
+          "range_lower": {
+            "type": "number",
+            "title": "Range Lower"
+          },
+          "range_upper": {
+            "type": "number",
+            "title": "Range Upper"
+          },
+          "stop_loss": {
+            "type": "number",
+            "title": "Stop Loss"
+          },
+          "stop_loss_ratio_pct": {
+            "type": "number",
+            "title": "Stop Loss Ratio Pct"
+          },
+          "max_possible_loss_usdt": {
+            "type": "number",
+            "title": "Max Possible Loss Usdt",
+            "default": 0.0
+          },
+          "total_return_usdt": {
+            "type": "number",
+            "title": "Total Return Usdt"
+          },
+          "max_drawdown_pct": {
+            "type": "number",
+            "title": "Max Drawdown Pct"
+          },
+          "sharpe_ratio": {
+            "type": "number",
+            "title": "Sharpe Ratio"
+          },
+          "win_rate": {
+            "type": "number",
+            "title": "Win Rate"
+          },
+          "return_drawdown_ratio": {
+            "type": "number",
+            "title": "Return Drawdown Ratio"
+          },
+          "score": {
+            "type": "number",
+            "title": "Score"
+          },
+          "validation_total_return_usdt": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Validation Total Return Usdt"
+          },
+          "validation_max_drawdown_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Validation Max Drawdown Pct"
+          },
+          "validation_sharpe_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Validation Sharpe Ratio"
+          },
+          "validation_win_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Validation Win Rate"
+          },
+          "validation_return_drawdown_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Validation Return Drawdown Ratio"
+          },
+          "validation_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Validation Score"
+          },
+          "validation_total_closed_trades": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Validation Total Closed Trades"
+          },
+          "robust_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Robust Score"
+          },
+          "overfit_penalty": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overfit Penalty"
+          },
+          "passes_constraints": {
+            "type": "boolean",
+            "title": "Passes Constraints",
+            "default": true
+          },
+          "constraint_violations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Constraint Violations"
+          },
+          "total_closed_trades": {
+            "type": "integer",
+            "title": "Total Closed Trades"
+          }
+        },
+        "type": "object",
+        "required": [
+          "row_id",
+          "leverage",
+          "grids",
+          "use_base_position",
+          "base_grid_count",
+          "initial_position_size",
+          "anchor_price",
+          "lower_price",
+          "upper_price",
+          "stop_price",
+          "band_width_pct",
+          "range_lower",
+          "range_upper",
+          "stop_loss",
+          "stop_loss_ratio_pct",
+          "total_return_usdt",
+          "max_drawdown_pct",
+          "sharpe_ratio",
+          "win_rate",
+          "return_drawdown_ratio",
+          "score",
+          "total_closed_trades"
+        ],
+        "title": "OptimizationResultRow"
+      },
+      "OptimizationRowsResponse": {
+        "properties": {
+          "job": {
+            "$ref": "#/components/schemas/OptimizationJobMeta"
+          },
+          "target": {
+            "$ref": "#/components/schemas/OptimizationTarget"
+          },
+          "sort_by": {
+            "type": "string",
+            "title": "Sort By"
+          },
+          "sort_order": {
+            "$ref": "#/components/schemas/SortOrder"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          },
+          "total_results": {
+            "type": "integer",
+            "title": "Total Results"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/OptimizationResultRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "best_row": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OptimizationResultRow"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "best_validation_row": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OptimizationResultRow"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "job",
+          "target",
+          "sort_by",
+          "sort_order",
+          "page",
+          "page_size",
+          "total_results",
+          "rows"
+        ],
+        "title": "OptimizationRowsResponse"
+      },
+      "OptimizationStartResponse": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/OptimizationJobStatus"
+          },
+          "total_combinations": {
+            "type": "integer",
+            "title": "Total Combinations"
+          },
+          "idempotency_reused": {
+            "type": "boolean",
+            "title": "Idempotency Reused",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "status",
+          "total_combinations"
+        ],
+        "title": "OptimizationStartResponse"
+      },
+      "OptimizationStatusResponse": {
+        "properties": {
+          "job": {
+            "$ref": "#/components/schemas/OptimizationJobMeta"
+          },
+          "target": {
+            "$ref": "#/components/schemas/OptimizationTarget"
+          },
+          "sort_by": {
+            "type": "string",
+            "title": "Sort By"
+          },
+          "sort_order": {
+            "$ref": "#/components/schemas/SortOrder"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          },
+          "total_results": {
+            "type": "integer",
+            "title": "Total Results"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/OptimizationResultRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "best_row": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OptimizationResultRow"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "best_validation_row": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OptimizationResultRow"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "best_equity_curve": {
+            "items": {
+              "$ref": "#/components/schemas/CurvePoint"
+            },
+            "type": "array",
+            "title": "Best Equity Curve",
+            "default": []
+          },
+          "best_score_progression": {
+            "items": {
+              "$ref": "#/components/schemas/OptimizationProgressPoint"
+            },
+            "type": "array",
+            "title": "Best Score Progression",
+            "default": []
+          },
+          "convergence_curve_data": {
+            "items": {
+              "$ref": "#/components/schemas/OptimizationProgressPoint"
+            },
+            "type": "array",
+            "title": "Convergence Curve Data",
+            "default": []
+          },
+          "heatmap": {
+            "items": {
+              "$ref": "#/components/schemas/HeatmapCell"
+            },
+            "type": "array",
+            "title": "Heatmap",
+            "default": []
+          },
+          "train_window": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TimeWindowInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "validation_window": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TimeWindowInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "job",
+          "target",
+          "sort_by",
+          "sort_order",
+          "page",
+          "page_size",
+          "total_results",
+          "rows"
+        ],
+        "title": "OptimizationStatusResponse"
+      },
+      "OptimizationTarget": {
+        "type": "string",
+        "enum": [
+          "total_return",
+          "sharpe",
+          "min_drawdown",
+          "return_drawdown_ratio",
+          "custom"
+        ],
+        "title": "OptimizationTarget"
+      },
+      "SortOrder": {
+        "type": "string",
+        "enum": [
+          "desc",
+          "asc"
+        ],
+        "title": "SortOrder"
+      },
+      "StrategyAnalysis": {
+        "properties": {
+          "risk_level": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "title": "Risk Level"
+          },
+          "structure_dependency": {
+            "type": "string",
+            "enum": [
+              "range",
+              "mixed",
+              "trend_sensitive"
+            ],
+            "title": "Structure Dependency"
+          },
+          "overfitting_flag": {
+            "type": "boolean",
+            "title": "Overfitting Flag"
+          },
+          "validation_degradation_pct": {
+            "type": "number",
+            "title": "Validation Degradation Pct"
+          },
+          "liquidation_risk": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "title": "Liquidation Risk"
+          },
+          "stability_score": {
+            "type": "number",
+            "title": "Stability Score"
+          },
+          "diagnosis_tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Diagnosis Tags"
+          },
+          "ai_explanation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Explanation"
+          }
+        },
+        "type": "object",
+        "required": [
+          "risk_level",
+          "structure_dependency",
+          "overfitting_flag",
+          "validation_degradation_pct",
+          "liquidation_risk",
+          "stability_score",
+          "diagnosis_tags"
+        ],
+        "title": "StrategyAnalysis"
+      },
+      "StrategyConfig": {
+        "properties": {
+          "side": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/GridSide"
+              }
+            ],
+            "default": "long"
+          },
+          "lower": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Lower"
+          },
+          "upper": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Upper"
+          },
+          "grids": {
+            "type": "integer",
+            "maximum": 300.0,
+            "minimum": 2.0,
+            "title": "Grids"
+          },
+          "leverage": {
+            "type": "number",
+            "maximum": 125.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Leverage"
+          },
+          "margin": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Margin"
+          },
+          "stop_loss": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Stop Loss"
+          },
+          "use_base_position": {
+            "type": "boolean",
+            "title": "Use Base Position",
+            "default": false
+          },
+          "strict_risk_control": {
+            "type": "boolean",
+            "title": "Strict Risk Control",
+            "default": true
+          },
+          "reopen_after_stop": {
+            "type": "boolean",
+            "title": "Reopen After Stop",
+            "default": true
+          },
+          "fee_rate": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Fee Rate",
+            "default": 0.0004
+          },
+          "maker_fee_rate": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maker Fee Rate"
+          },
+          "taker_fee_rate": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Taker Fee Rate"
+          },
+          "slippage": {
+            "type": "number",
+            "maximum": 0.05,
+            "minimum": 0.0,
+            "title": "Slippage",
+            "default": 0.0
+          },
+          "maintenance_margin_rate": {
+            "type": "number",
+            "maximum": 0.2,
+            "exclusiveMinimum": 0.0,
+            "title": "Maintenance Margin Rate",
+            "default": 0.005
+          },
+          "funding_rate_per_8h": {
+            "type": "number",
+            "maximum": 0.05,
+            "minimum": -0.05,
+            "title": "Funding Rate Per 8H",
+            "default": 0.0
+          },
+          "funding_interval_hours": {
+            "type": "integer",
+            "maximum": 24.0,
+            "minimum": 1.0,
+            "title": "Funding Interval Hours",
+            "default": 8
+          },
+          "use_mark_price_for_liquidation": {
+            "type": "boolean",
+            "title": "Use Mark Price For Liquidation",
+            "default": false
+          },
+          "price_tick_size": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Price Tick Size",
+            "default": 0.0
+          },
+          "quantity_step_size": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Quantity Step Size",
+            "default": 0.0
+          },
+          "min_notional": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Min Notional",
+            "default": 0.0
+          },
+          "max_allowed_loss_usdt": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Allowed Loss Usdt"
+          }
+        },
+        "type": "object",
+        "required": [
+          "lower",
+          "upper",
+          "grids",
+          "leverage",
+          "margin",
+          "stop_loss"
+        ],
+        "title": "StrategyConfig"
+      },
+      "StrategyScoring": {
+        "properties": {
+          "profit_score": {
+            "type": "number",
+            "title": "Profit Score"
+          },
+          "risk_score": {
+            "type": "number",
+            "title": "Risk Score"
+          },
+          "stability_score": {
+            "type": "number",
+            "title": "Stability Score"
+          },
+          "robustness_score": {
+            "type": "number",
+            "title": "Robustness Score"
+          },
+          "behavior_score": {
+            "type": "number",
+            "title": "Behavior Score"
+          },
+          "final_score": {
+            "type": "number",
+            "title": "Final Score"
+          },
+          "grade": {
+            "type": "string",
+            "enum": [
+              "A",
+              "B",
+              "C",
+              "D",
+              "E"
+            ],
+            "title": "Grade"
+          },
+          "profit_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Profit Reasons"
+          },
+          "risk_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Risk Reasons"
+          },
+          "stability_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Stability Reasons"
+          },
+          "robustness_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Robustness Reasons"
+          },
+          "behavior_reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Behavior Reasons"
+          }
+        },
+        "type": "object",
+        "required": [
+          "profit_score",
+          "risk_score",
+          "stability_score",
+          "robustness_score",
+          "behavior_score",
+          "final_score",
+          "grade"
+        ],
+        "title": "StrategyScoring"
+      },
+      "SweepRange": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": false
+          },
+          "start": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start"
+          },
+          "end": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End"
+          },
+          "step": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step"
+          },
+          "values": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Values"
+          }
+        },
+        "type": "object",
+        "title": "SweepRange"
+      },
+      "TimeWindowInfo": {
+        "properties": {
+          "start_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Start Time"
+          },
+          "end_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "End Time"
+          },
+          "candles": {
+            "type": "integer",
+            "title": "Candles"
+          }
+        },
+        "type": "object",
+        "required": [
+          "start_time",
+          "end_time",
+          "candles"
+        ],
+        "title": "TimeWindowInfo"
+      },
+      "TradeEvent": {
+        "properties": {
+          "open_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Open Time"
+          },
+          "close_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Close Time"
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "long",
+              "short"
+            ],
+            "title": "Side"
+          },
+          "entry_price": {
+            "type": "number",
+            "title": "Entry Price"
+          },
+          "exit_price": {
+            "type": "number",
+            "title": "Exit Price"
+          },
+          "quantity": {
+            "type": "number",
+            "title": "Quantity"
+          },
+          "gross_pnl": {
+            "type": "number",
+            "title": "Gross Pnl"
+          },
+          "net_pnl": {
+            "type": "number",
+            "title": "Net Pnl"
+          },
+          "fee_paid": {
+            "type": "number",
+            "title": "Fee Paid"
+          },
+          "holding_hours": {
+            "type": "number",
+            "title": "Holding Hours"
+          },
+          "close_reason": {
+            "type": "string",
+            "enum": [
+              "grid_take_profit",
+              "stop_loss",
+              "liquidation"
+            ],
+            "title": "Close Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "open_time",
+          "close_time",
+          "side",
+          "entry_price",
+          "exit_price",
+          "quantity",
+          "gross_pnl",
+          "net_pnl",
+          "fee_paid",
+          "holding_hours",
+          "close_reason"
+        ],
+        "title": "TradeEvent"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}
