@@ -1,4 +1,5 @@
-import { BacktestRequest, BacktestResponse, LiveComparisonMetric, LiveComparisonSummary, LiveSnapshotResponse } from "../types";
+import type { LiveComparisonMetric, LiveComparisonSummary } from "../types";
+import type { BacktestRequest, BacktestResponse, LiveSnapshotResponse } from "../lib/api-schema";
 
 interface Params {
   request: BacktestRequest;

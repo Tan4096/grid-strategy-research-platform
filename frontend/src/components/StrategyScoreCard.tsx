@@ -1,4 +1,4 @@
-import { StrategyScoring } from "../types";
+import type { StrategyScoring } from "../lib/api-schema";
 
 interface Props {
   scoring: StrategyScoring;

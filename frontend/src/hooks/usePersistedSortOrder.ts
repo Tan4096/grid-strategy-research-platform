@@ -1,6 +1,6 @@
 import { Dispatch, SetStateAction, useEffect, useState } from "react";
 import { readPlain, writePlain } from "../lib/storage";
-import { SortOrder } from "../types";
+import type { SortOrder } from "../lib/api-schema";
 
 function normalizeSortOrder(raw: unknown): SortOrder | null {
   if (raw === "asc" || raw === "desc") {

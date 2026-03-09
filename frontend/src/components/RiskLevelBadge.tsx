@@ -1,4 +1,4 @@
-import { AnalysisRiskLevel } from "../types";
+import type { AnalysisRiskLevel } from "../lib/api-schema";
 
 interface Props {
   level: AnalysisRiskLevel;

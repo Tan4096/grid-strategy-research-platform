@@ -1,4 +1,4 @@
-import { CurvePoint, EventLog, TradeEvent } from "../types";
+import type { CurvePoint, EventLog, TradeEvent } from "../lib/api-schema";
 
 function toFiniteNumber(value: unknown): number | null {
   const parsed = typeof value === "number" ? value : Number(value);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { TradeEvent } from "../types";
+import type { TradeEvent } from "../lib/api-schema";
 import {
   buildAverageEntryCurve,
   buildCumulativeFeeCurve,

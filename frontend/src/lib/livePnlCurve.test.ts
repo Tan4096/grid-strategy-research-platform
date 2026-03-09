@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { LiveSnapshotResponse } from "../types";
+import type { LiveSnapshotResponse } from "../lib/api-schema";
 import { buildLivePnlCurve } from "./livePnlCurve";
 
 const baseSnapshot: LiveSnapshotResponse = {

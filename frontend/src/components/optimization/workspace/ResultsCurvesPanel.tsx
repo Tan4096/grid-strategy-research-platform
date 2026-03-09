@@ -1,7 +1,7 @@
 import { Suspense, lazy, useMemo } from "react";
 import { buildReturnRateCurve } from "../../../lib/backtestCurveTransforms";
 import { resolveCurveColorByLastValue } from "../../../lib/curveColors";
-import { CurvePoint } from "../../../types";
+import type { CurvePoint } from "../../../lib/api-schema";
 
 const LineChart = lazy(() => import("../../LineChart"));
 

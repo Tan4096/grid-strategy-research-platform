@@ -1,6 +1,6 @@
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { OptimizationRow } from "../../../types";
+import type { OptimizationRow } from "../../../lib/api-schema";
 import { renderHook } from "../../../test-utils/renderHook";
 import {
   filterOptimizationRows,

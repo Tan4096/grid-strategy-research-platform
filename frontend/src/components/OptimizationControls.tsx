@@ -1,5 +1,5 @@
 import { ReactNode, useEffect, useState } from "react";
-import { OptimizationConfig } from "../types";
+import type { OptimizationConfig } from "../lib/api-schema";
 import ComputeSection from "./optimization/ComputeSection";
 import RobustSection from "./optimization/RobustSection";
 import ScanSection from "./optimization/ScanSection";

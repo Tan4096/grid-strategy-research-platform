@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { OptimizationHistoryFailedItem } from "../../../types";
+import type { OptimizationHistoryFailedItem } from "../../../lib/operation-models";
 
 export interface OperationLogEntry {
   id: string;

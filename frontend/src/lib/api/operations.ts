@@ -1,8 +1,4 @@
-import {
-  OperationRecord,
-  OperationRecordPageResponse,
-  OptimizationHistoryFailedItem
-} from "../../types";
+import type { OperationRecord, OperationRecordPageResponse, OptimizationHistoryFailedItem } from "../../lib/operation-models";
 import { requestJson, type RequestOptions } from "./core";
 
 function normalizeJobIdList(raw: unknown): string[] {

@@ -1,4 +1,4 @@
-import { BacktestRequest } from "../../types";
+import type { BacktestRequest } from "../../lib/api-schema";
 import { inputClass, labelClass } from "./shared";
 
 interface Props {

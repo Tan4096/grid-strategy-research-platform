@@ -1,7 +1,7 @@
 import { ComponentType, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLayoutCardHeight } from "../hooks/useLayoutCardHeight";
 import { useIsMobile } from "../hooks/responsive/useIsMobile";
-import { Candle, EventLog } from "../types";
+import type { Candle, EventLog } from "../lib/api-schema";
 import { readPlain, STORAGE_KEYS, writePlain } from "../lib/storage";
 import {
   CHART_GRID_BOTTOM,

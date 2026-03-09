@@ -6,7 +6,7 @@ import {
   estimateInitialAverageEntryAndLiquidationPrice
 } from "../lib/backtestAppHelpers";
 import { OPTIMIZATION_ANCHOR_LABELS } from "../lib/appTheme";
-import { AnchorMode, BacktestRequest, OptimizationConfig } from "../types";
+import type { AnchorMode, BacktestRequest, OptimizationConfig } from "../lib/api-schema";
 
 interface UseRiskAnchorAndPrechecksParams {
   mode: "backtest" | "optimize";

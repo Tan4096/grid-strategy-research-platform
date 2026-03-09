@@ -1,4 +1,4 @@
-import { BacktestRequest, DataSource } from "../../types";
+import type { BacktestRequest, DataSource } from "../../lib/api-schema";
 import { useState } from "react";
 import {
   DATA_SOURCE_OPTIONS,

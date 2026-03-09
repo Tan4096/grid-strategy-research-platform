@@ -3,14 +3,8 @@ import type { Dispatch, SetStateAction } from "react";
 import type { WorkspaceTab } from "../../components/OptimizationPanel";
 import { cloneBacktestRequest, exportBacktestResultCsv } from "../../lib/backtestAppHelpers";
 import { resolveMobilePrimaryTabAfterRun } from "../../lib/mobileShell";
-import {
-  AppWorkspaceMode,
-  BacktestRequest,
-  MobilePrimaryTab,
-  OptimizationConfig,
-  OptimizationRow,
-  ParameterMode
-} from "../../types";
+import type { AppWorkspaceMode, MobilePrimaryTab, ParameterMode } from "../../types";
+import type { BacktestRequest, OptimizationConfig, OptimizationRow } from "../../lib/api-schema";
 import { useBacktestRunner } from "../useBacktestRunner";
 import {
   type OptimizationRunnerActions,

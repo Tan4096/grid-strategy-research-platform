@@ -1,5 +1,5 @@
 import { ChangeEvent, ReactNode, RefObject } from "react";
-import { AnchorMode, BacktestRequest } from "../../../types";
+import type { AnchorMode, BacktestRequest } from "../../../lib/api-schema";
 import PositionSection from "../PositionSection";
 import RangeSection from "../RangeSection";
 import RiskSection from "../RiskSection";

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { renderHook } from "../../test-utils/renderHook";
 import { STORAGE_KEYS } from "../../lib/storage";
-import { OptimizationStatusResponse } from "../../types";
+import type { OptimizationStatusResponse } from "../../lib/api-schema";
 import {
   getMobileOptimizeDefaultLandingView,
   normalizeStoredMobileOptimizeLandingView,

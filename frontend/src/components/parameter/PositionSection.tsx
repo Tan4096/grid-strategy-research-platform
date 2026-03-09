@@ -1,4 +1,4 @@
-import { BacktestRequest, StrategyConfig } from "../../types";
+import type { BacktestRequest, StrategyConfig } from "../../lib/api-schema";
 import { POSITION_FIELDS, labelClass, renderNumericFields } from "./shared";
 
 interface Props {

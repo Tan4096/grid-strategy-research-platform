@@ -8,7 +8,7 @@ import {
   useRef,
   useState
 } from "react";
-import { CurvePoint } from "../types";
+import type { CurvePoint } from "../lib/api-schema";
 import { useLayoutCardHeight } from "../hooks/useLayoutCardHeight";
 import StateBlock from "./ui/StateBlock";
 

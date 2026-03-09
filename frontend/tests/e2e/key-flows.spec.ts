@@ -13,6 +13,9 @@ interface MockApiOptions {
   historyItems?: Array<{ job: ReturnType<typeof optimizationMeta>; target: string }>;
   historyNextCursor?: string | null;
   historyAfterCursor?: Record<string, { items: Array<{ job: ReturnType<typeof optimizationMeta>; target: string }>; next_cursor: string | null }>;
+  backtestStatusPlan?: Array<Record<string, unknown>>;
+  optimizationProgressPlan?: Array<Record<string, unknown>>;
+  optimizationStatusPlan?: Array<Record<string, unknown>>;
   clearSelectedPlan?: Array<{
     deleted: number;
     failed: number;
@@ -124,11 +127,11 @@ function optimizationMeta(status: "pending" | "running" | "completed" | "failed"
   };
 }
 
-function optimizationStatusPayload() {
+function optimizationStatusPayload(status: "pending" | "running" | "completed" | "failed" | "cancelled" = "completed") {
   const row = optimizationRow();
   const now = nowIso();
   return {
-    job: optimizationMeta("completed"),
+    job: optimizationMeta(status),
     target: "return_drawdown_ratio",
     sort_by: "robust_score",
     sort_order: "desc",
@@ -168,6 +171,9 @@ async function mockApi(page: Page, options: MockApiOptions = {}): Promise<MockCa
     exportCalls: 0
   };
   const statusPayload = optimizationStatusPayload();
+  let backtestStatusCall = 0;
+  let optimizationProgressCall = 0;
+  let optimizationStatusCall = 0;
   const defaultHistoryItems = [
     {
       job: optimizationMeta("completed"),
@@ -209,21 +215,45 @@ async function mockApi(page: Page, options: MockApiOptions = {}): Promise<MockCa
       return;
     }
     if (path === "/api/v1/backtest/bt-job-1" && method === "GET") {
+      const plan = options.backtestStatusPlan;
+      const payload = plan?.[Math.min(backtestStatusCall, plan.length - 1)] ?? {
+        job: {
+          job_id: "bt-job-1",
+          status: "failed",
+          created_at: nowIso(),
+          started_at: nowIso(),
+          finished_at: nowIso(),
+          progress: 100,
+          message: "failed",
+          error: "mocked backtest failure"
+        },
+        result: null
+      };
+      backtestStatusCall += 1;
+      await route.fulfill(jsonResponse(payload));
+      return;
+    }
+    if (path === "/api/v1/live/robots" && method === "POST") {
       await route.fulfill(
         jsonResponse({
-          job: {
-            job_id: "bt-job-1",
-            status: "failed",
-            created_at: nowIso(),
-            started_at: nowIso(),
-            finished_at: nowIso(),
-            progress: 100,
-            message: "failed",
-            error: "mocked backtest failure"
-          },
-          result: null
+          scope: "recent",
+          items: [
+            {
+              algo_id: "algo-live-1",
+              name: "BTC Grid",
+              symbol: "BTCUSDT",
+              exchange_symbol: "BTC-USDT-SWAP",
+              updated_at: nowIso(),
+              state: "running",
+              side: "long"
+            }
+          ]
         })
       );
+      return;
+    }
+    if (path === "/api/v1/live/snapshot" && method === "POST") {
+      await route.fulfill(jsonResponse({ code: "NOT_IMPLEMENTED" }, 400));
       return;
     }
     if (path === "/api/v1/optimization/start" && method === "POST") {
@@ -569,4 +599,173 @@ test("operation feedback drawer is reachable on mobile viewport", async ({ page 
   await expect(page.getByRole("button", { name: "关闭" })).toBeVisible();
   await page.getByRole("button", { name: "关闭" }).click();
   await expect(page.getByRole("button", { name: "更多" })).toBeVisible();
+});
+
+
+test("backtest falls back to polling when EventSource is unavailable", async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { EventSource?: typeof EventSource }).EventSource = undefined;
+  });
+  await mockApi(page, {
+    backtestStatusPlan: [
+      {
+        job: {
+          job_id: "bt-job-1",
+          status: "running",
+          created_at: nowIso(),
+          started_at: nowIso(),
+          finished_at: null,
+          progress: 10,
+          message: "running",
+          error: null
+        },
+        result: null
+      }
+    ]
+  });
+  await page.goto("/");
+  await login(page);
+
+  await page.getByRole("button", { name: "开始回测" }).click();
+  await expect(page.getByText("实时流暂不可用，已自动降级为轮询跟踪。")).toBeVisible();
+  await expect(page.getByText("轮询降级")).toBeVisible();
+});
+
+test("optimization falls back to polling when EventSource is unavailable", async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { EventSource?: typeof EventSource }).EventSource = undefined;
+  });
+  await mockApi(page, {
+    optimizationProgressPlan: [
+      {
+        job: optimizationMeta("running"),
+        target: "return_drawdown_ratio"
+      }
+    ],
+    optimizationStatusPlan: [optimizationStatusPayload("running")]
+  });
+  await page.goto("/");
+  await login(page);
+
+  await page.getByRole("button", { name: "参数优化" }).click();
+  await page.getByRole("button", { name: "开始参数优化" }).click();
+  await expect(page.getByText("实时连接已降级为轮询")).toBeVisible();
+});
+
+
+test("resumes active backtest job from session storage", async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { EventSource?: typeof EventSource }).EventSource = undefined;
+    window.sessionStorage.setItem(
+      "backtest_active_job_v1",
+      JSON.stringify({ job_id: "bt-job-1", started_at: Date.now() })
+    );
+  });
+  await mockApi(page, {
+    backtestStatusPlan: [
+      {
+        job: {
+          job_id: "bt-job-1",
+          status: "running",
+          created_at: nowIso(),
+          started_at: nowIso(),
+          finished_at: null,
+          progress: 35,
+          message: "running",
+          error: null
+        },
+        result: null
+      }
+    ]
+  });
+  await page.goto("/");
+  await expect(page.locator("#root")).toBeVisible();
+  await expect(page.getByText("实时流暂不可用，已自动降级为轮询跟踪。")).toBeVisible();
+  await expect(page.getByText("轮询降级")).toBeVisible();
+});
+
+test("mobile live credentials restore only after explicit opt-in", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockApi(page);
+  await page.goto("/");
+  await login(page);
+
+  await page.locator("select").first().selectOption("okx");
+  await page.locator('[data-tour-id="mobile-tab-live"]').click();
+  await page.getByPlaceholder("输入 OKX API Key").fill("demo-live-key");
+  await page.getByPlaceholder("输入 OKX API Secret").fill("demo-live-secret");
+  await page.getByPlaceholder("输入 OKX Passphrase").fill("demo-live-passphrase");
+
+  const draftBeforeOptIn = await page.evaluate(() => window.sessionStorage.getItem("btc-grid-backtest:live-connection-draft:v1"));
+  const persistBeforeOptIn = await page.evaluate(() => window.sessionStorage.getItem("btc-grid-backtest:live-connection-credentials-persist-enabled:v1"));
+  expect(draftBeforeOptIn).toContain('"api_key":""');
+  expect(draftBeforeOptIn).toContain('"api_secret":""');
+  expect(persistBeforeOptIn).toBe("0");
+
+  await page.getByRole("checkbox", { name: /在当前浏览器会话中保存 OKX 凭证/ }).check();
+
+  const draftAfterOptIn = await page.evaluate(() => window.sessionStorage.getItem("btc-grid-backtest:live-connection-draft:v1"));
+  const persistAfterOptIn = await page.evaluate(() => window.sessionStorage.getItem("btc-grid-backtest:live-connection-credentials-persist-enabled:v1"));
+  expect(draftAfterOptIn).toContain('demo-live-key');
+  expect(draftAfterOptIn).toContain('demo-live-secret');
+  expect(draftAfterOptIn).toContain('demo-live-passphrase');
+  expect(persistAfterOptIn).toBe("1");
+});
+
+
+test("recovers backtest polling immediately when page becomes visible again", async ({ page }) => {
+  await page.addInitScript(() => {
+    let state: DocumentVisibilityState = "visible";
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => state
+    });
+    (window as unknown as { __setVisibilityState?: (next: DocumentVisibilityState) => void }).__setVisibilityState = (next) => {
+      state = next;
+      document.dispatchEvent(new Event("visibilitychange"));
+    };
+    (window as unknown as { EventSource?: typeof EventSource }).EventSource = undefined;
+  });
+  await mockApi(page, {
+    backtestStatusPlan: [
+      {
+        job: {
+          job_id: "bt-job-1",
+          status: "running",
+          created_at: nowIso(),
+          started_at: nowIso(),
+          finished_at: null,
+          progress: 10,
+          message: "running",
+          error: null
+        },
+        result: null
+      },
+      {
+        job: {
+          job_id: "bt-job-1",
+          status: "failed",
+          created_at: nowIso(),
+          started_at: nowIso(),
+          finished_at: nowIso(),
+          progress: 100,
+          message: "failed",
+          error: "mocked backtest failure"
+        },
+        result: null
+      }
+    ]
+  });
+  await page.goto("/");
+  await login(page);
+
+  await page.getByRole("button", { name: "开始回测" }).click();
+  await page.evaluate(() => {
+    (window as unknown as { __setVisibilityState?: (next: DocumentVisibilityState) => void }).__setVisibilityState?.("hidden");
+  });
+  await page.evaluate(() => {
+    (window as unknown as { __setVisibilityState?: (next: DocumentVisibilityState) => void }).__setVisibilityState?.("visible");
+  });
+
+  await expect(page.getByText("mocked backtest failure")).toBeVisible();
 });

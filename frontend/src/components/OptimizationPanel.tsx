@@ -1,15 +1,7 @@
 import { ReactNode, useEffect, useMemo, useState } from "react";
-import {
-  JobTransportMode,
-  MobileOptimizeOverlay,
-  OptimizationConfig,
-  OptimizationHistoryClearResult,
-  OptimizationHistoryRestoreResult,
-  OptimizationProgressResponse,
-  OptimizationRow,
-  OptimizationStatusResponse,
-  SortOrder
-} from "../types";
+import type { JobTransportMode, MobileOptimizeOverlay } from "../types";
+import type { OptimizationConfig, OptimizationProgressResponse, OptimizationRow, OptimizationStatusResponse, SortOrder } from "../lib/api-schema";
+import type { OptimizationHistoryClearResult, OptimizationHistoryRestoreResult } from "../lib/operation-models";
 import { useMobileOptimizeLandingView } from "../hooks/mobile/useMobileOptimizeLandingView";
 import OptimizationControls from "./OptimizationControls";
 import OptimizationHistoryWorkspace from "./optimization/workspace/OptimizationHistoryWorkspace";

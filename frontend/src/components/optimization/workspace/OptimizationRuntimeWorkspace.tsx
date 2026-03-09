@@ -1,4 +1,5 @@
-import { JobTransportMode, OptimizationConfig, OptimizationStatusResponse } from "../../../types";
+import type { JobTransportMode } from "../../../types";
+import type { OptimizationConfig, OptimizationStatusResponse } from "../../../lib/api-schema";
 import OptimizationControls from "../../OptimizationControls";
 import StateBlock from "../../ui/StateBlock";
 

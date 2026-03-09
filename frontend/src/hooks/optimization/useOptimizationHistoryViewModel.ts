@@ -1,14 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useIsMobile } from "../responsive/useIsMobile";
 import { STORAGE_KEYS, writePlain } from "../../lib/storage";
-import type {
-  OptimizationHistoryClearResult,
-  OptimizationHistoryFailedItem,
-  OptimizationHistoryRestoreResult,
-  OptimizationProgressResponse,
-  OptimizationRow,
-  OptimizationStatusResponse
-} from "../../types";
+import type { OptimizationProgressResponse, OptimizationRow, OptimizationStatusResponse } from "../../lib/api-schema";
+import type { OptimizationHistoryClearResult, OptimizationHistoryFailedItem, OptimizationHistoryRestoreResult } from "../../lib/operation-models";
 import type { OperationLogEntry } from "../../components/optimization/workspace/OptimizationOperationLogPanel";
 import {
   FAST_RETRY_REASON_CODES,

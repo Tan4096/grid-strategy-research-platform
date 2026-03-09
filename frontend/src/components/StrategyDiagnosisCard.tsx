@@ -1,4 +1,4 @@
-import { StrategyAnalysis } from "../types";
+import type { StrategyAnalysis } from "../lib/api-schema";
 
 interface Props {
   analysis: StrategyAnalysis;

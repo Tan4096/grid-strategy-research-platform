@@ -1,12 +1,5 @@
-import {
-  BacktestJobStatus,
-  BacktestStartResponse,
-  JobStreamUpdate,
-  OptimizationHistoryClearResult,
-  OptimizationHistoryFailedItem,
-  OptimizationJobStatus,
-  OptimizationStartResponse
-} from "../types";
+import type { BacktestJobStatus, BacktestStartResponse, OptimizationJobStatus, OptimizationStartResponse } from "../lib/api-schema";
+import type { JobStreamUpdate, OptimizationHistoryClearResult, OptimizationHistoryFailedItem } from "../lib/operation-models";
 import type { operations } from "./api.generated";
 
 export type ApiBacktestStartRequest =
@@ -14,10 +7,46 @@ export type ApiBacktestStartRequest =
 export type ApiBacktestStartResponse =
   operations["start_backtest_api_api_v1_backtest_start_post"]["responses"]["200"]["content"]["application/json"];
 
+export type ApiFetchDefaultsResponse =
+  operations["get_defaults_api_v1_backtest_defaults_get"]["responses"]["200"]["content"]["application/json"];
+export type ApiRunBacktestRequest =
+  operations["run_backtest_api_api_v1_backtest_run_post"]["requestBody"]["content"]["application/json"];
+export type ApiRunBacktestResponse =
+  operations["run_backtest_api_api_v1_backtest_run_post"]["responses"]["200"]["content"]["application/json"];
+export type ApiBacktestAnchorPriceRequest =
+  operations["backtest_anchor_price_api_api_v1_backtest_anchor_price_post"]["requestBody"]["content"]["application/json"];
+export type ApiBacktestAnchorPriceResponse =
+  operations["backtest_anchor_price_api_api_v1_backtest_anchor_price_post"]["responses"]["200"]["content"]["application/json"];
+export type ApiBacktestStatusResponse =
+  operations["backtest_status_api_api_v1_backtest__job_id__get"]["responses"]["200"]["content"]["application/json"];
+export type ApiMarketParamsResponse =
+  operations["market_params_api_api_v1_market_params_get"]["responses"]["200"]["content"]["application/json"];
+export type ApiLiveRobotListRequest =
+  operations["live_robot_list_api_api_v1_live_robots_post"]["requestBody"]["content"]["application/json"];
+export type ApiLiveRobotListResponse =
+  operations["live_robot_list_api_api_v1_live_robots_post"]["responses"]["200"]["content"]["application/json"];
+export type ApiLiveSnapshotRequest =
+  operations["live_snapshot_api_api_v1_live_snapshot_post"]["requestBody"]["content"]["application/json"];
+export type ApiLiveSnapshotResponse =
+  operations["live_snapshot_api_api_v1_live_snapshot_post"]["responses"]["200"]["content"]["application/json"];
+
 export type ApiOptimizationStartRequest =
   operations["start_optimization_api_api_v1_optimization_start_post"]["requestBody"]["content"]["application/json"];
 export type ApiOptimizationStartResponse =
   operations["start_optimization_api_api_v1_optimization_start_post"]["responses"]["200"]["content"]["application/json"];
+
+export type ApiOptimizationStatusResponse =
+  operations["optimization_status_api_api_v1_optimization__job_id__get"]["responses"]["200"]["content"]["application/json"];
+export type ApiOptimizationRowsResponse =
+  operations["optimization_rows_api_api_v1_optimization__job_id__rows_get"]["responses"]["200"]["content"]["application/json"];
+export type ApiOptimizationHeatmapResponse =
+  operations["optimization_heatmap_api_api_v1_optimization__job_id__heatmap_get"]["responses"]["200"]["content"]["application/json"];
+export type ApiOptimizationProgressResponse =
+  operations["optimization_progress_api_api_v1_optimization__job_id__progress_get"]["responses"]["200"]["content"]["application/json"];
+export type ApiOptimizationHistoryPageResponse =
+  operations["optimization_history_api_api_v1_optimization_history_get"]["responses"]["200"]["content"]["application/json"];
+export type ApiOptimizationRestartResponse =
+  operations["optimization_restart_api_api_v1_optimization__job_id__restart_post"]["responses"]["200"]["content"]["application/json"];
 
 const BACKTEST_JOB_STATUSES = new Set<BacktestJobStatus>([
   "pending",

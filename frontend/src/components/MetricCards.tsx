@@ -1,4 +1,4 @@
-import { BacktestSummary } from "../types";
+import type { BacktestSummary } from "../lib/api-schema";
 
 interface Props {
   summary: BacktestSummary;

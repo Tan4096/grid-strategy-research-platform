@@ -1,5 +1,5 @@
 import { ReactNode } from "react";
-import { SweepRange } from "../../types";
+import type { SweepRange } from "../../lib/api-schema";
 
 export type SweepKey = "leverage" | "grids" | "band_width_pct" | "stop_loss_ratio_pct";
 export type ComputeMode = "fast" | "balanced" | "eco";

@@ -1,15 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { OptimizationResultTab } from "../components/OptimizationPanel";
-import {
-  BacktestRequest,
-  OptimizationConfig,
-  OptimizationHistoryClearResult,
-  OptimizationHistoryRestoreResult,
-  JobTransportMode,
-  OptimizationProgressResponse,
-  OptimizationStatusResponse,
-  SortOrder
-} from "../types";
+import type { JobTransportMode } from "../types";
+import type { BacktestRequest, OptimizationConfig, OptimizationProgressResponse, OptimizationStatusResponse, SortOrder } from "../lib/api-schema";
+import type { OptimizationHistoryClearResult, OptimizationHistoryRestoreResult } from "../lib/operation-models";
 import { useOptimizationHistoryState } from "./optimization/useOptimizationHistoryState";
 import { useOptimizationJobActions } from "./optimization/useOptimizationJobActions";
 import { useOptimizationResultData } from "./optimization/useOptimizationResultData";

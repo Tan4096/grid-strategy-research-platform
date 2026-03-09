@@ -1,5 +1,5 @@
 import { MutableRefObject } from "react";
-import { Candle } from "../../types";
+import type { Candle } from "../../lib/api-schema";
 import { calculateAlignedBodyWidth, clamp } from "./chartUtils";
 
 export interface MarkerGeometry {

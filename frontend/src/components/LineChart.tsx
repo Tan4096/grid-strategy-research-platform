@@ -1,5 +1,5 @@
 import { useId, useMemo, useRef } from "react";
-import { CurvePoint } from "../types";
+import type { CurvePoint } from "../lib/api-schema";
 import {
   NEGATIVE_CURVE_COLOR,
   NEUTRAL_CURVE_COLOR,

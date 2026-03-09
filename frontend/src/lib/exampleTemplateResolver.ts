@@ -1,4 +1,4 @@
-import { OptimizationConfig, BacktestRequest } from "../types";
+import type { OptimizationConfig, BacktestRequest } from "../lib/api-schema";
 import { readPlain, STORAGE_KEYS, writePlain } from "./storage";
 
 const LEGACY_STRATEGY_TEMPLATES_KEY = "btc-grid-backtest:strategy-templates:v1";

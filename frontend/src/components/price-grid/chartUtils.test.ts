@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { Candle, EventLog } from "../../types";
+import type { Candle, EventLog } from "../../lib/api-schema";
 import { buildTradeMarkerData } from "./chartUtils";
 
 const candles: Candle[] = [

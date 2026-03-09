@@ -1,11 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiRequestError, fetchLiveRobotList, getApiErrorInfo } from "../lib/api";
-import {
-  LiveConnectionDraft,
-  LiveExchange,
-  LiveRobotListItem,
-  LiveRobotListScope
-} from "../types";
+import type { LiveConnectionDraft } from "../types";
+import type { LiveExchange, LiveRobotListItem, LiveRobotListScope } from "../lib/api-schema";
 import { NOTICE_ADVICE, buildNoticeDetail } from "../lib/notificationCopy";
 import type { EmitOperationEventInput } from "./useOperationFeedback";
 

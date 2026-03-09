@@ -6,7 +6,7 @@ import {
   resolveOptimizationTemplates
 } from "../../lib/exampleTemplateResolver";
 import { STORAGE_KEYS, writePlain } from "../../lib/storage";
-import { OptimizationConfig } from "../../types";
+import type { OptimizationConfig } from "../../lib/api-schema";
 import InputDialog from "../ui/InputDialog";
 
 interface Props {

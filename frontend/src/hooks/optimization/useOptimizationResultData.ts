@@ -5,7 +5,7 @@ import {
   fetchOptimizationRows,
   fetchOptimizationStatus
 } from "../../lib/api";
-import { OptimizationStatusResponse, SortOrder } from "../../types";
+import type { OptimizationStatusResponse, SortOrder } from "../../lib/api-schema";
 import { mergeOptimizationJobMeta } from "../useOptimizationPolling";
 
 interface Params {

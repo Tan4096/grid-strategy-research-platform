@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { OptimizationProgressResponse, OptimizationStatusResponse } from "../types";
+import type { OptimizationProgressResponse, OptimizationStatusResponse } from "../lib/api-schema";
 import { mergeOptimizationJobMeta, mergeOptimizationProgressStatus } from "./useOptimizationPolling";
 
 function createProgress(progress: number, status: "pending" | "running" | "completed" = "running"): OptimizationProgressResponse {

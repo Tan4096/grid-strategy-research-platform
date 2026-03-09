@@ -1,15 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePollingLifecycle } from "./usePollingLifecycle";
 import { ApiRequestError, fetchLiveSnapshot, getApiErrorInfo } from "../lib/api";
 import { detectLiveMonitoringNotifications } from "../lib/liveMonitoringNotifications";
 import { NOTICE_ADVICE, buildNoticeDetail } from "../lib/notificationCopy";
 import { STORAGE_KEYS } from "../lib/storage";
-import {
-  LiveConnectionDraft,
-  LiveExchange,
-  LiveMonitoringTrendPoint,
-  LiveRobotListScope,
-  LiveSnapshotResponse
-} from "../types";
+import type { LiveConnectionDraft, LiveMonitoringTrendPoint } from "../types";
+import type { LiveExchange, LiveRobotListScope, LiveSnapshotResponse } from "../lib/api-schema";
 import type { EmitOperationEventInput } from "./useOperationFeedback";
 
 const MAX_TREND_POINTS = 4096;
@@ -178,13 +174,10 @@ export function useLiveTradingSync({
   const [error, setError] = useState<string | null>(null);
   const [autoRefreshPaused, setAutoRefreshPaused] = useState(false);
   const [autoRefreshPausedReason, setAutoRefreshPausedReason] = useState<string | null>(null);
-  const [nextRefreshAt, setNextRefreshAt] = useState<number | null>(null);
   const [trend, setTrend] = useState<LiveMonitoringTrendPoint[]>([]);
   const controllerRef = useRef<AbortController | null>(null);
-  const timerRef = useRef<number | null>(null);
   const trendHistoryMapRef = useRef<TrendHistoryMap>({});
   const snapshotRef = useRef<LiveSnapshotResponse | null>(null);
-  const lastResumeRefreshAtRef = useRef(0);
 
   const requestKey = useMemo(
     () =>
@@ -219,13 +212,6 @@ export function useLiveTradingSync({
       ),
     [algoId, credentials?.api_key, credentials?.api_secret, credentials?.passphrase, exchange, ready, strategyStartedAt, symbol]
   );
-
-  const clearTimer = useCallback(() => {
-    if (timerRef.current !== null) {
-      window.clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-  }, []);
 
   const updateTrend = useCallback((nextSnapshot: LiveSnapshotResponse) => {
     const nextPoint = buildTrendPoint(nextSnapshot);
@@ -348,20 +334,19 @@ export function useLiveTradingSync({
     await performRefresh();
   }, [onMonitoringEnabledChange, performRefresh]);
 
-  const resumeRefresh = useCallback(() => {
-    if (!active || !canRequest || !monitoringEnabled || autoRefreshPaused) {
-      return;
-    }
-    const now = Date.now();
-    if (now - lastResumeRefreshAtRef.current < 1_000) {
-      return;
-    }
-    lastResumeRefreshAtRef.current = now;
-    clearTimer();
-    setNextRefreshAt(null);
-    void performRefresh();
-  }, [active, autoRefreshPaused, canRequest, clearTimer, monitoringEnabled, performRefresh]);
+  const canAutoRefresh = Boolean(active && canRequest && monitoringEnabled && !autoRefreshPaused);
 
+  const resumeRefresh = useCallback(() => {
+    if (!canAutoRefresh) {
+      return;
+    }
+    void performRefresh();
+  }, [canAutoRefresh, performRefresh]);
+
+  const { clear: clearTimer, nextRunAt: nextRefreshAt, schedule: schedulePollingRefresh } = usePollingLifecycle({
+    enabled: canAutoRefresh,
+    onResume: resumeRefresh
+  });
 
   useEffect(() => {
     trendHistoryMapRef.current = readTrendHistoryMap();
@@ -373,7 +358,6 @@ export function useLiveTradingSync({
       controllerRef.current?.abort();
       controllerRef.current = null;
       clearTimer();
-      setNextRefreshAt(null);
       setAutoRefreshPaused(false);
       setAutoRefreshPausedReason(null);
       setError(null);
@@ -385,7 +369,6 @@ export function useLiveTradingSync({
 
   useEffect(() => {
     clearTimer();
-    setNextRefreshAt(null);
     setSnapshot(null);
     snapshotRef.current = null;
     setError(null);
@@ -394,9 +377,8 @@ export function useLiveTradingSync({
   }, [clearTimer, requestKey]);
 
   useEffect(() => {
-    if (!active || !canRequest || !monitoringEnabled || autoRefreshPaused) {
+    if (!canAutoRefresh) {
       clearTimer();
-      setNextRefreshAt(null);
       return;
     }
 
@@ -406,16 +388,14 @@ export function useLiveTradingSync({
       if (cancelled) {
         return;
       }
-      const nextAt = Date.now() + pollIntervalSec * 1000;
-      setNextRefreshAt(nextAt);
-      clearTimer();
-      timerRef.current = window.setTimeout(async () => {
+      schedulePollingRefresh(pollIntervalSec * 1000, () => {
         if (cancelled) {
           return;
         }
-        await performRefresh();
-        scheduleNext();
-      }, pollIntervalSec * 1000);
+        void performRefresh().finally(() => {
+          scheduleNext();
+        });
+      });
     };
 
     if (!snapshot) {
@@ -427,31 +407,7 @@ export function useLiveTradingSync({
       cancelled = true;
       clearTimer();
     };
-  }, [active, autoRefreshPaused, canRequest, clearTimer, monitoringEnabled, performRefresh, pollIntervalSec, snapshot]);
-
-  useEffect(() => {
-    if (typeof window === "undefined" || typeof document === "undefined") {
-      return;
-    }
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        resumeRefresh();
-      }
-    };
-    const handleFocus = () => {
-      resumeRefresh();
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    window.addEventListener("focus", handleFocus);
-    window.addEventListener("pageshow", handleFocus);
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      window.removeEventListener("focus", handleFocus);
-      window.removeEventListener("pageshow", handleFocus);
-    };
-  }, [resumeRefresh]);
+  }, [canAutoRefresh, clearTimer, performRefresh, pollIntervalSec, schedulePollingRefresh, snapshot]);
 
   useEffect(
     () => () => {
@@ -467,7 +423,6 @@ export function useLiveTradingSync({
     controllerRef.current = null;
     clearTimer();
     setLoading(false);
-    setNextRefreshAt(null);
     setAutoRefreshPaused(false);
     setAutoRefreshPausedReason(null);
     onMonitoringEnabledChange?.(false);

@@ -1,9 +1,4 @@
-import {
-  LiveDiagnostic,
-  LiveLedgerEntry,
-  LiveRobotListItem,
-  LiveSnapshotResponse
-} from "../types";
+import type { LiveDiagnostic, LiveLedgerEntry, LiveRobotListItem, LiveSnapshotResponse } from "../lib/api-schema";
 
 export type LiveMonitoringRiskLevel = "safe" | "watch" | "danger";
 export type LiveMonitoringIntegrityLevel = "high" | "medium" | "low";

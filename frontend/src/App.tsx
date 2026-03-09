@@ -19,9 +19,7 @@ import { usePersistedLiveTradingConfig } from "./hooks/usePersistedLiveTradingCo
 import { usePersistedOptimizationConfig } from "./hooks/usePersistedOptimizationConfig";
 import { useMobileBottomInset } from "./hooks/responsive/useMobileBottomInset";
 import { useRiskAnchorAndPrechecks } from "./hooks/useRiskAnchorAndPrechecks";
-import {
-  AnchorMode
-} from "./types";
+import type { AnchorMode } from "./lib/api-schema";
 import { useIsMobile } from "./hooks/responsive/useIsMobile";
 
 const BacktestPanel = lazy(() => import("./components/BacktestPanel"));

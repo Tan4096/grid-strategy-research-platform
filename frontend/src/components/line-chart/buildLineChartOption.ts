@@ -1,4 +1,4 @@
-import { CurvePoint } from "../../types";
+import type { CurvePoint } from "../../lib/api-schema";
 
 export interface LineChartPoint {
   x: number;

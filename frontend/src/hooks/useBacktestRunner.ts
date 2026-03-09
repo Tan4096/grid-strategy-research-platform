@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { usePollingLifecycle } from "./usePollingLifecycle";
+import { createSsePollingFallbackController } from "./createSsePollingFallbackController";
 import {
   buildJobStreamUrl,
   cancelBacktest,
@@ -9,7 +11,8 @@ import {
 } from "../lib/api";
 import { persistLastRunStrategyTemplate } from "../lib/exampleTemplateResolver";
 import { NOTICE_ADVICE, buildJobLabel, buildNoticeDetail } from "../lib/notificationCopy";
-import { BacktestRequest, BacktestResponse, BacktestStatusResponse, JobTransportMode } from "../types";
+import type { JobTransportMode } from "../types";
+import type { BacktestRequest, BacktestResponse, BacktestStatusResponse } from "../lib/api-schema";
 import type { EmitOperationEventInput } from "./useOperationFeedback";
 
 interface Precheck {
@@ -114,6 +117,11 @@ export function useBacktestRunner({ request, requestReady, precheck, onJobResume
   const [transportMode, setTransportMode] = useState<JobTransportMode>("idle");
   const runNonceRef = useRef(0);
   const resumeAttemptedRef = useRef(false);
+  const resumePollingRef = useRef<() => void>(() => undefined);
+  const { clear: clearPollingTimer, isPageVisible, schedule: schedulePolling } = usePollingLifecycle({
+    enabled: Boolean(jobId && loading),
+    onResume: () => resumePollingRef.current()
+  });
 
   const canRun = useMemo(() => precheck.errors.length === 0, [precheck.errors.length]);
 
@@ -269,9 +277,6 @@ export function useBacktestRunner({ request, requestReady, precheck, onJobResume
     }
 
     let cancelled = false;
-    let timer: number | null = null;
-    let connectingTimer: number | null = null;
-    let stream: EventSource | null = null;
     let pollingStarted = false;
     let terminalReached = false;
     let reportedPollingFallback = false;
@@ -317,22 +322,20 @@ export function useBacktestRunner({ request, requestReady, precheck, onJobResume
           retryable: errorInfo.retryable,
           source: "backtest_runner"
         });
-        const hidden = document.visibilityState !== "visible";
-        timer = window.setTimeout(poll, hidden ? 3000 : 1200);
+        schedulePolling(isPageVisible() ? 1200 : 3000, () => {
+          void poll();
+        });
         return;
       }
 
-      const hidden = document.visibilityState !== "visible";
-      timer = window.setTimeout(poll, hidden ? 3000 : 1200);
+      schedulePolling(isPageVisible() ? 1200 : 3000, () => {
+        void poll();
+      });
     };
 
     const startPollingFallback = () => {
       if (pollingStarted || cancelled || terminalReached) {
         return;
-      }
-      if (connectingTimer) {
-        window.clearTimeout(connectingTimer);
-        connectingTimer = null;
       }
       pollingStarted = true;
       setTransportMode("polling");
@@ -351,40 +354,23 @@ export function useBacktestRunner({ request, requestReady, precheck, onJobResume
       void poll();
     };
 
-    const setupSse = () => {
-      if (typeof EventSource === "undefined") {
-        startPollingFallback();
-        return;
+    resumePollingRef.current = () => {
+      if (pollingStarted && !terminalReached) {
+        void poll();
       }
-      try {
-        setTransportMode("connecting");
-        stream = new EventSource(buildJobStreamUrl(jobId, "backtest"));
-        connectingTimer = window.setTimeout(() => {
-          if (cancelled || terminalReached || pollingStarted) {
-            return;
-          }
-          stream?.close();
-          stream = null;
-          startPollingFallback();
-        }, 5000);
-      } catch {
-        startPollingFallback();
-        return;
-      }
-      stream.addEventListener("open", () => {
-        if (!cancelled) {
-          if (connectingTimer) {
-            window.clearTimeout(connectingTimer);
-            connectingTimer = null;
-          }
-          setTransportMode("sse");
-        }
-      });
-      stream.addEventListener("update", (event) => {
+    };
+
+    const sseController = createSsePollingFallbackController({
+      streamUrl: buildJobStreamUrl(jobId, "backtest"),
+      setTransportMode,
+      isStopped: () => cancelled || terminalReached,
+      isPollingActive: () => pollingStarted,
+      onStartPollingFallback: startPollingFallback,
+      onUpdate: (event) => {
         if (cancelled) {
           return;
         }
-        const parsed = parseJobStreamUpdate<BacktestStatusResponse>((event as MessageEvent<string>).data);
+        const parsed = parseJobStreamUpdate<BacktestStatusResponse>(event.data);
         if (!parsed || parsed.job_type !== "backtest" || parsed.job_id !== jobId || !parsed.payload) {
           return;
         }
@@ -399,38 +385,27 @@ export function useBacktestRunner({ request, requestReady, precheck, onJobResume
         });
         terminalReached = applyBacktestStatus(parsed.payload);
         if (terminalReached) {
-          stream?.close();
-          stream = null;
+          sseController.cleanup();
         }
-      });
-      stream.addEventListener("error", () => {
-        if (cancelled || terminalReached) {
-          return;
+      },
+      onResumePolling: () => {
+        if (pollingStarted && !terminalReached) {
+          void poll();
         }
-        if (connectingTimer) {
-          window.clearTimeout(connectingTimer);
-          connectingTimer = null;
-        }
-        stream?.close();
-        stream = null;
-        startPollingFallback();
-      });
-    };
+      }
+    });
 
-    setupSse();
+    resumePollingRef.current = sseController.resume;
+    sseController.start();
 
     return () => {
       cancelled = true;
       setTransportMode("idle");
-      stream?.close();
-      if (timer) {
-        window.clearTimeout(timer);
-      }
-      if (connectingTimer) {
-        window.clearTimeout(connectingTimer);
-      }
+      clearPollingTimer();
+      sseController.cleanup();
+      resumePollingRef.current = () => undefined;
     };
-  }, [applyBacktestStatus, jobId, loading, notifyCenter, showToast]);
+  }, [applyBacktestStatus, clearPollingTimer, isPageVisible, jobId, loading, notifyCenter, schedulePolling, showToast]);
 
   return {
     result,

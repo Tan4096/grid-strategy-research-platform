@@ -6,7 +6,7 @@ import {
   useRef,
   useState
 } from "react";
-import { OptimizationProgressPoint } from "../types";
+import type { OptimizationProgressPoint } from "../lib/api-schema";
 import { useLayoutCardHeight } from "../hooks/useLayoutCardHeight";
 import StateBlock from "./ui/StateBlock";
 

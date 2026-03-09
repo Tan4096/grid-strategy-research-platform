@@ -9,7 +9,8 @@ import {
 } from "../lib/curveColors";
 import { useIsMobile } from "../hooks/responsive/useIsMobile";
 import { STORAGE_KEYS } from "../lib/storage";
-import { BacktestResponse, JobTransportMode } from "../types";
+import type { JobTransportMode } from "../types";
+import type { BacktestResponse } from "../lib/api-schema";
 import StateBlock from "./ui/StateBlock";
 
 const BacktestEventsTimeline = lazy(() => import("./BacktestEventsTimeline"));

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildLiveComparison } from "./liveComparison";
-import type { BacktestRequest, BacktestResponse, LiveSnapshotResponse } from "../types";
+import type { BacktestRequest, BacktestResponse, LiveSnapshotResponse } from "../lib/api-schema";
 
 const request: BacktestRequest = {
   strategy: {

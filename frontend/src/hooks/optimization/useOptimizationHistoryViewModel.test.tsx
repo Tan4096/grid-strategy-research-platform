@@ -1,10 +1,7 @@
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type {
-  OptimizationHistoryClearResult,
-  OptimizationProgressResponse,
-  OptimizationStatusResponse
-} from "../../types";
+import type { OptimizationProgressResponse, OptimizationStatusResponse } from "../../lib/api-schema";
+import type { OptimizationHistoryClearResult } from "../../lib/operation-models";
 import { renderHook } from "../../test-utils/renderHook";
 import { HISTORY_UI_SESSION_KEY } from "./optimizationHistoryViewModel.shared";
 import { useOptimizationHistoryViewModel } from "./useOptimizationHistoryViewModel";

@@ -1,4 +1,4 @@
-import type { JobStreamType, JobStreamUpdate } from "../../types";
+import type { JobStreamType, JobStreamUpdate } from "../../lib/operation-models";
 import { normalizeJobStreamUpdate } from "../api-contract";
 import { getClientSessionId } from "./core";
 

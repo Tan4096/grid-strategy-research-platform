@@ -1,4 +1,4 @@
-import { OptimizationConfig, SweepRange } from "../../types";
+import type { OptimizationConfig, SweepRange } from "../../lib/api-schema";
 import { SectionCard, SweepEditor, SweepKey, sweepTitle } from "./shared";
 
 interface Props {

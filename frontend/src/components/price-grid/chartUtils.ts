@@ -1,4 +1,4 @@
-import { Candle, EventLog } from "../../types";
+import type { Candle, EventLog } from "../../lib/api-schema";
 
 export interface TradeMarkerPoint {
   value: [number, number];

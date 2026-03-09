@@ -6,7 +6,7 @@ import {
   LEGACY_BACKTEST_PARAMS_STORAGE_KEY
 } from "../lib/defaults";
 import { STORAGE_KEYS, readVersioned, writeVersioned } from "../lib/storage";
-import { BacktestRequest } from "../types";
+import type { BacktestRequest } from "../lib/api-schema";
 
 function normalizeStoredRequest(raw: unknown): BacktestRequest | null {
   if (!raw || typeof raw !== "object") {

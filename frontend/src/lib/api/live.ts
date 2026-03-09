@@ -1,26 +1,5 @@
-import {
-  CurvePoint,
-  LiveCompleteness,
-  LiveDailyBreakdown,
-  LiveDiagnostic,
-  LiveFill,
-  LiveFundingEntry,
-  LiveLedgerEntry,
-  LiveLedgerSummary,
-  LiveMonitoringInfo,
-  LiveOpenOrder,
-  LivePosition,
-  LiveRobotOverview,
-  LiveRobotListItem,
-  LiveRobotListRequest,
-  LiveRobotListResponse,
-  LiveRobotListScope,
-  LiveSnapshotRequest,
-  LiveSnapshotResponse,
-  LiveSnapshotSummary,
-  LiveWindowInfo,
-  MarketParamsResponse
-} from "../../types";
+import type { CurvePoint, LiveCompleteness, LiveDailyBreakdown, LiveDiagnostic, LiveFill, LiveFundingEntry, LiveLedgerEntry, LiveLedgerSummary, LiveMonitoringInfo, LiveOpenOrder, LivePosition, LiveRobotOverview, LiveRobotListItem, LiveRobotListRequest, LiveRobotListResponse, LiveRobotListScope, LiveSnapshotRequest, LiveSnapshotResponse, LiveSnapshotSummary, LiveWindowInfo, MarketParamsResponse } from "../../lib/api-schema";
+import type { ApiLiveRobotListRequest, ApiLiveRobotListResponse, ApiLiveSnapshotRequest, ApiLiveSnapshotResponse } from "../api-contract";
 import {
   asBoolean,
   asNullableBoolean,
@@ -658,14 +637,14 @@ export async function fetchLiveRobotList(
     ...payload,
     scope: payload.scope ?? "running"
   };
-  const raw = await requestJson<unknown>(
+  const raw = await requestJson<ApiLiveRobotListResponse>(
     "/api/v1/live/robots",
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify(normalizedPayload)
+      body: JSON.stringify(normalizedPayload as ApiLiveRobotListRequest)
     },
     options
   );
@@ -681,14 +660,14 @@ export async function fetchLiveSnapshot(
     monitoring_poll_interval_sec: payload.monitoring_poll_interval_sec ?? 15,
     monitoring_scope: payload.monitoring_scope ?? "running"
   };
-  const raw = await requestJson<unknown>(
+  const raw = await requestJson<ApiLiveSnapshotResponse>(
     "/api/v1/live/snapshot",
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify(normalizedPayload)
+      body: JSON.stringify(normalizedPayload as ApiLiveSnapshotRequest)
     },
     options
   );

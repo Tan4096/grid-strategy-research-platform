@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { OptimizationRow } from "../types";
+import type { OptimizationRow } from "../lib/api-schema";
 import StateBlock from "./ui/StateBlock";
 import { humanizeConstraintList } from "./optimization/constraints";
 

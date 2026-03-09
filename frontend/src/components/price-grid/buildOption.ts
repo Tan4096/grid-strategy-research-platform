@@ -1,4 +1,4 @@
-import { Candle } from "../../types";
+import type { Candle } from "../../lib/api-schema";
 import {
   formatChartTimeFull,
   formatPercent,

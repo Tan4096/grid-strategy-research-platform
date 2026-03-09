@@ -5,11 +5,8 @@ import {
   getApiErrorInfo,
   restoreSelectedOptimizationHistory
 } from "../../lib/api";
-import {
-  OptimizationHistoryClearResult,
-  OptimizationHistoryRestoreResult,
-  OptimizationProgressResponse
-} from "../../types";
+import type { OptimizationProgressResponse } from "../../lib/api-schema";
+import type { OptimizationHistoryClearResult, OptimizationHistoryRestoreResult } from "../../lib/operation-models";
 import { NOTICE_ADVICE, buildNoticeDetail } from "../../lib/notificationCopy";
 import type { EmitOperationEventInput } from "../useOperationFeedback";
 import { STORAGE_KEYS } from "../../lib/storage";

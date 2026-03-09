@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { usePersistedSortOrder } from "../hooks/usePersistedSortOrder";
 import { readPlain, STORAGE_KEYS, writePlain } from "../lib/storage";
 import SortOrderSwitch from "./SortOrderSwitch";
-import { EventLog, SortOrder } from "../types";
+import type { EventLog, SortOrder } from "../lib/api-schema";
 
 interface Props {
   events: EventLog[];

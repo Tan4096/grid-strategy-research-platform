@@ -1,4 +1,4 @@
-import { SortOrder } from "../types";
+import type { SortOrder } from "../lib/api-schema";
 
 interface Props {
   value: SortOrder;

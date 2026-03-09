@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { BacktestRequest, StrategyConfig } from "../../types";
+import type { BacktestRequest, StrategyConfig } from "../../lib/api-schema";
 import { useIsMobile } from "../../hooks/responsive/useIsMobile";
 
 const BEIJING_TIME_ZONE = "Asia/Shanghai";

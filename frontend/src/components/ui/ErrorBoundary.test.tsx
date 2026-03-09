@@ -1,10 +1,14 @@
 import { act } from "react";
 import type { ReactNode } from "react";
 import { createRoot, Root } from "react-dom/client";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import ErrorBoundary from "./ErrorBoundary";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 interface MountedNode {
   container: HTMLDivElement;
@@ -44,6 +48,7 @@ function Thrower({ shouldThrow }: { shouldThrow: boolean }) {
 
 describe("ErrorBoundary", () => {
   it("resets when resetKey changes", () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
     const mounted = mount(
       <ErrorBoundary fallbackMessage="fallback" resetKey="a">
         <Thrower shouldThrow />

@@ -23,6 +23,7 @@ beforeEach(() => {
       }
     }
   });
+
 });
 
 afterEach(() => {
@@ -59,6 +60,46 @@ describe("usePersistedLiveTradingConfig", () => {
     expect(hook.value.draft.profiles.okx.passphrase).toBe("");
 
     hook.unmount();
+  });
+
+
+  it("persists selected algoId even when credentials are not persisted", async () => {
+    const hook = renderHook(() => usePersistedLiveTradingConfig());
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    act(() => {
+      hook.value.setDraft((prev) => ({
+        ...prev,
+        algo_id: "algo-789",
+        profiles: {
+          ...prev.profiles,
+          okx: {
+            api_key: "demo-key",
+            api_secret: "demo-secret",
+            passphrase: "demo-pass"
+          }
+        }
+      }));
+      hook.value.setPersistCredentialsEnabled(false);
+    });
+
+    hook.rerender();
+    hook.unmount();
+
+    const remounted = renderHook(() => usePersistedLiveTradingConfig());
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(remounted.value.draft.algo_id).toBe("algo-789");
+    expect(remounted.value.draft.profiles.okx.api_key).toBe("");
+    expect(remounted.value.draft.profiles.okx.api_secret).toBe("");
+    expect(remounted.value.draft.profiles.okx.passphrase).toBe("");
+
+    remounted.unmount();
   });
 
   it("restores credentials after explicit opt-in and persists within the same browser session", async () => {

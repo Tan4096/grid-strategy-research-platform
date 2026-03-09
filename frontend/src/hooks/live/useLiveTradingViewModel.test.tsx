@@ -1,6 +1,7 @@
 import { act } from "react";
 import { describe, expect, it } from "vitest";
-import type { BacktestRequest, LiveMonitoringTrendPoint, LiveSnapshotResponse } from "../../types";
+import type { LiveMonitoringTrendPoint } from "../../types";
+import type { BacktestRequest, LiveSnapshotResponse } from "../../lib/api-schema";
 import { renderHook } from "../../test-utils/renderHook";
 import { useLiveTradingViewModel } from "./useLiveTradingViewModel";
 

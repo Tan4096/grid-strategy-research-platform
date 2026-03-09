@@ -1,4 +1,4 @@
-import { BacktestRequest, BacktestResponse, OptimizationConfig, StrategyConfig, SweepRange } from "../types";
+import type { BacktestRequest, BacktestResponse, OptimizationConfig, StrategyConfig, SweepRange } from "../lib/api-schema";
 import { buildGridNodes, deriveBasePositionGridIndices as sharedDeriveBasePositionGridIndices } from "./gridLogic";
 
 function csvEscape(value: unknown): string {

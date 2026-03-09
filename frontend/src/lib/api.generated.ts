@@ -21,6 +21,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/health/ready": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Health Ready */
+        get: operations["health_ready_api_v1_health_ready_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/metrics": {
         parameters: {
             query?: never;
@@ -30,6 +47,40 @@ export interface paths {
         };
         /** Metrics Api */
         get: operations["metrics_api_api_v1_metrics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operations/{operation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Optimization Operation Detail Api */
+        get: operations["optimization_operation_detail_api_api_v1_operations__operation_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/operations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Optimization Operations Api */
+        get: operations["optimization_operations_api_api_v1_operations_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -168,6 +219,40 @@ export interface paths {
         get: operations["market_params_api_api_v1_market_params_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/live/robots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Live Robot List Api */
+        post: operations["live_robot_list_api_api_v1_live_robots_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/live/snapshot": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Live Snapshot Api */
+        post: operations["live_snapshot_api_api_v1_live_snapshot_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -438,6 +523,8 @@ export interface components {
             equity_curve: components["schemas"]["CurvePoint"][];
             /** Drawdown Curve */
             drawdown_curve: components["schemas"]["CurvePoint"][];
+            /** Unrealized Pnl Curve */
+            unrealized_pnl_curve: components["schemas"]["CurvePoint"][];
             /** Margin Ratio Curve */
             margin_ratio_curve: components["schemas"]["CurvePoint"][];
             /** Leverage Usage Curve */
@@ -503,6 +590,10 @@ export interface components {
             fees_paid: number;
             /** Funding Paid */
             funding_paid: number;
+            /** Funding Net */
+            funding_net: number;
+            /** Funding Statement Amount */
+            funding_statement_amount: number;
             /** Use Base Position */
             use_base_position: boolean;
             /** Base Grid Count */
@@ -630,6 +721,552 @@ export interface components {
          * @enum {string}
          */
         JobStreamType: "auto" | "backtest" | "optimization";
+        /** LiveAccountInfo */
+        LiveAccountInfo: {
+            exchange: components["schemas"]["LiveExchange"];
+            /** Symbol */
+            symbol: string;
+            /** Exchange Symbol */
+            exchange_symbol: string;
+            /** Algo Id */
+            algo_id: string;
+            /**
+             * Strategy Started At
+             * Format: date-time
+             */
+            strategy_started_at: string;
+            /**
+             * Fetched At
+             * Format: date-time
+             */
+            fetched_at: string;
+            /** Masked Api Key */
+            masked_api_key: string;
+        };
+        /** LiveCompleteness */
+        LiveCompleteness: {
+            /**
+             * Fills Complete
+             * @default true
+             */
+            fills_complete: boolean;
+            /**
+             * Funding Complete
+             * @default true
+             */
+            funding_complete: boolean;
+            /**
+             * Bills Window Clipped
+             * @default false
+             */
+            bills_window_clipped: boolean;
+            /** Partial Failures */
+            partial_failures?: string[];
+        };
+        /** LiveCredentials */
+        LiveCredentials: {
+            /** Api Key */
+            api_key: string;
+            /** Api Secret */
+            api_secret: string;
+            /** Passphrase */
+            passphrase?: string | null;
+        };
+        /** LiveDailyBreakdown */
+        LiveDailyBreakdown: {
+            /** Date */
+            date: string;
+            /**
+             * Realized Pnl
+             * @default 0
+             */
+            realized_pnl: number;
+            /**
+             * Fees Paid
+             * @default 0
+             */
+            fees_paid: number;
+            /**
+             * Funding Net
+             * @default 0
+             */
+            funding_net: number;
+            /**
+             * Trading Net
+             * @default 0
+             */
+            trading_net: number;
+            /**
+             * Total Pnl
+             * @default 0
+             */
+            total_pnl: number;
+            /**
+             * Entry Count
+             * @default 0
+             */
+            entry_count: number;
+        };
+        /** LiveDiagnostic */
+        LiveDiagnostic: {
+            /**
+             * Level
+             * @enum {string}
+             */
+            level: "info" | "warning" | "error";
+            /** Code */
+            code: string;
+            /** Message */
+            message: string;
+            /** Action Hint */
+            action_hint?: string | null;
+        };
+        /**
+         * LiveExchange
+         * @enum {string}
+         */
+        LiveExchange: "binance" | "bybit" | "okx";
+        /** LiveFill */
+        LiveFill: {
+            /** Trade Id */
+            trade_id: string;
+            /** Order Id */
+            order_id?: string | null;
+            /**
+             * Side
+             * @enum {string}
+             */
+            side: "buy" | "sell";
+            /** Price */
+            price: number;
+            /** Quantity */
+            quantity: number;
+            /**
+             * Realized Pnl
+             * @default 0
+             */
+            realized_pnl: number;
+            /**
+             * Fee
+             * @default 0
+             */
+            fee: number;
+            /** Fee Currency */
+            fee_currency?: string | null;
+            /** Is Maker */
+            is_maker?: boolean | null;
+            /**
+             * Timestamp
+             * Format: date-time
+             */
+            timestamp: string;
+        };
+        /** LiveFundingEntry */
+        LiveFundingEntry: {
+            /**
+             * Timestamp
+             * Format: date-time
+             */
+            timestamp: string;
+            /** Amount */
+            amount: number;
+            /** Rate */
+            rate?: number | null;
+            /** Position Size */
+            position_size?: number | null;
+            /** Currency */
+            currency?: string | null;
+        };
+        /** LiveInferredGrid */
+        LiveInferredGrid: {
+            /** Lower */
+            lower?: number | null;
+            /** Upper */
+            upper?: number | null;
+            /** Grid Count */
+            grid_count?: number | null;
+            /** Grid Spacing */
+            grid_spacing?: number | null;
+            /**
+             * Active Level Count
+             * @default 0
+             */
+            active_level_count: number;
+            /** Active Levels */
+            active_levels?: number[];
+            /**
+             * Confidence
+             * @default 0
+             */
+            confidence: number;
+            /** Use Base Position */
+            use_base_position?: boolean | null;
+            side?: components["schemas"]["GridSide"] | null;
+            /** Note */
+            note?: string | null;
+        };
+        /** LiveLedgerEntry */
+        LiveLedgerEntry: {
+            /**
+             * Timestamp
+             * Format: date-time
+             */
+            timestamp: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "trade" | "fee" | "funding";
+            /** Amount */
+            amount: number;
+            /**
+             * Pnl
+             * @default 0
+             */
+            pnl: number;
+            /**
+             * Fee
+             * @default 0
+             */
+            fee: number;
+            /** Currency */
+            currency?: string | null;
+            /** Side */
+            side?: ("buy" | "sell") | null;
+            /** Order Id */
+            order_id?: string | null;
+            /** Trade Id */
+            trade_id?: string | null;
+            /** Is Maker */
+            is_maker?: boolean | null;
+            /** Note */
+            note?: string | null;
+        };
+        /** LiveLedgerSummary */
+        LiveLedgerSummary: {
+            /** Trading Net */
+            trading_net: number;
+            /** Fees */
+            fees: number;
+            /** Funding */
+            funding: number;
+            /** Total Pnl */
+            total_pnl: number;
+            /** Realized */
+            realized: number;
+            /** Unrealized */
+            unrealized: number;
+        };
+        /** LiveMonitoringInfo */
+        LiveMonitoringInfo: {
+            /** Poll Interval Sec */
+            poll_interval_sec: number;
+            /**
+             * Last Success At
+             * Format: date-time
+             */
+            last_success_at: string;
+            /** Freshness Sec */
+            freshness_sec: number;
+            /**
+             * Stale
+             * @default false
+             */
+            stale: boolean;
+            /**
+             * Source Latency Ms
+             * @default 0
+             */
+            source_latency_ms: number;
+            /**
+             * Fills Page Count
+             * @default 0
+             */
+            fills_page_count: number;
+            /**
+             * Fills Capped
+             * @default false
+             */
+            fills_capped: boolean;
+            /**
+             * Orders Page Count
+             * @default 0
+             */
+            orders_page_count: number;
+        };
+        /** LiveOpenOrder */
+        LiveOpenOrder: {
+            /** Order Id */
+            order_id: string;
+            /** Client Order Id */
+            client_order_id?: string | null;
+            /**
+             * Side
+             * @enum {string}
+             */
+            side: "buy" | "sell";
+            /** Price */
+            price: number;
+            /** Quantity */
+            quantity: number;
+            /**
+             * Filled Quantity
+             * @default 0
+             */
+            filled_quantity: number;
+            /**
+             * Reduce Only
+             * @default false
+             */
+            reduce_only: boolean;
+            /**
+             * Status
+             * @default open
+             */
+            status: string;
+            /** Timestamp */
+            timestamp?: string | null;
+        };
+        /** LivePosition */
+        LivePosition: {
+            /**
+             * Side
+             * @default flat
+             * @enum {string}
+             */
+            side: "long" | "short" | "flat";
+            /**
+             * Quantity
+             * @default 0
+             */
+            quantity: number;
+            /**
+             * Entry Price
+             * @default 0
+             */
+            entry_price: number;
+            /**
+             * Mark Price
+             * @default 0
+             */
+            mark_price: number;
+            /**
+             * Notional
+             * @default 0
+             */
+            notional: number;
+            /** Leverage */
+            leverage?: number | null;
+            /** Liquidation Price */
+            liquidation_price?: number | null;
+            /** Margin Mode */
+            margin_mode?: string | null;
+            /**
+             * Unrealized Pnl
+             * @default 0
+             */
+            unrealized_pnl: number;
+            /**
+             * Realized Pnl
+             * @default 0
+             */
+            realized_pnl: number;
+        };
+        /** LiveRobotListItem */
+        LiveRobotListItem: {
+            /** Algo Id */
+            algo_id: string;
+            /** Name */
+            name: string;
+            /** Symbol */
+            symbol: string;
+            /** Exchange Symbol */
+            exchange_symbol: string;
+            /** State */
+            state?: string | null;
+            /** Side */
+            side?: ("long" | "short" | "flat") | null;
+            /** Updated At */
+            updated_at?: string | null;
+            /** Run Type */
+            run_type?: string | null;
+            /** Configured Leverage */
+            configured_leverage?: number | null;
+            /** Investment Usdt */
+            investment_usdt?: number | null;
+            /** Lower Price */
+            lower_price?: number | null;
+            /** Upper Price */
+            upper_price?: number | null;
+            /** Grid Count */
+            grid_count?: number | null;
+        };
+        /** LiveRobotListRequest */
+        LiveRobotListRequest: {
+            exchange: components["schemas"]["LiveExchange"];
+            /**
+             * Scope
+             * @default running
+             * @enum {string}
+             */
+            scope: "running" | "recent";
+            credentials: components["schemas"]["LiveCredentials"];
+        };
+        /** LiveRobotListResponse */
+        LiveRobotListResponse: {
+            /**
+             * Scope
+             * @default running
+             * @enum {string}
+             */
+            scope: "running" | "recent";
+            /** Items */
+            items?: components["schemas"]["LiveRobotListItem"][];
+        };
+        /** LiveRobotOverview */
+        LiveRobotOverview: {
+            /** Algo Id */
+            algo_id: string;
+            /** Name */
+            name: string;
+            /** State */
+            state?: string | null;
+            /** Direction */
+            direction?: ("long" | "short" | "flat") | null;
+            /** Algo Type */
+            algo_type?: string | null;
+            /** Run Type */
+            run_type?: string | null;
+            /** Created At */
+            created_at?: string | null;
+            /** Updated At */
+            updated_at?: string | null;
+            /** Investment Usdt */
+            investment_usdt?: number | null;
+            /** Configured Leverage */
+            configured_leverage?: number | null;
+            /** Actual Leverage */
+            actual_leverage?: number | null;
+            /** Liquidation Price */
+            liquidation_price?: number | null;
+            /** Grid Count */
+            grid_count?: number | null;
+            /** Lower Price */
+            lower_price?: number | null;
+            /** Upper Price */
+            upper_price?: number | null;
+            /** Grid Spacing */
+            grid_spacing?: number | null;
+            /** Grid Profit */
+            grid_profit?: number | null;
+            /** Floating Profit */
+            floating_profit?: number | null;
+            /** Total Fee */
+            total_fee?: number | null;
+            /** Funding Fee */
+            funding_fee?: number | null;
+            /** Total Pnl */
+            total_pnl?: number | null;
+            /** Pnl Ratio */
+            pnl_ratio?: number | null;
+            /** Stop Loss Price */
+            stop_loss_price?: number | null;
+            /** Take Profit Price */
+            take_profit_price?: number | null;
+            /** Use Base Position */
+            use_base_position?: boolean | null;
+        };
+        /** LiveSnapshotRequest */
+        LiveSnapshotRequest: {
+            exchange: components["schemas"]["LiveExchange"];
+            /** Symbol */
+            symbol: string;
+            /**
+             * Strategy Started At
+             * Format: date-time
+             */
+            strategy_started_at: string;
+            /** Algo Id */
+            algo_id?: string | null;
+            /**
+             * Monitoring Poll Interval Sec
+             * @default 15
+             */
+            monitoring_poll_interval_sec: number;
+            /**
+             * Monitoring Scope
+             * @default running
+             * @enum {string}
+             */
+            monitoring_scope: "running" | "recent";
+            credentials: components["schemas"]["LiveCredentials"];
+        };
+        /** LiveSnapshotResponse */
+        LiveSnapshotResponse: {
+            account: components["schemas"]["LiveAccountInfo"];
+            robot: components["schemas"]["LiveRobotOverview"];
+            monitoring: components["schemas"]["LiveMonitoringInfo"];
+            market_params?: components["schemas"]["MarketParamsResponse"] | null;
+            summary: components["schemas"]["LiveSnapshotSummary"];
+            window: components["schemas"]["LiveWindowInfo"];
+            completeness: components["schemas"]["LiveCompleteness"];
+            ledger_summary: components["schemas"]["LiveLedgerSummary"];
+            position: components["schemas"]["LivePosition"];
+            /** Open Orders */
+            open_orders?: components["schemas"]["LiveOpenOrder"][];
+            /** Fills */
+            fills?: components["schemas"]["LiveFill"][];
+            /** Funding Entries */
+            funding_entries?: components["schemas"]["LiveFundingEntry"][];
+            /** Pnl Curve */
+            pnl_curve?: components["schemas"]["CurvePoint"][];
+            /** Daily Breakdown */
+            daily_breakdown?: components["schemas"]["LiveDailyBreakdown"][];
+            /** Ledger Entries */
+            ledger_entries?: components["schemas"]["LiveLedgerEntry"][];
+            inferred_grid: components["schemas"]["LiveInferredGrid"];
+            /** Diagnostics */
+            diagnostics?: components["schemas"]["LiveDiagnostic"][];
+        };
+        /** LiveSnapshotSummary */
+        LiveSnapshotSummary: {
+            /** Realized Pnl */
+            realized_pnl: number;
+            /** Unrealized Pnl */
+            unrealized_pnl: number;
+            /** Fees Paid */
+            fees_paid: number;
+            /** Funding Paid */
+            funding_paid: number;
+            /** Funding Net */
+            funding_net: number;
+            /** Total Pnl */
+            total_pnl: number;
+            /** Position Notional */
+            position_notional: number;
+            /** Open Order Count */
+            open_order_count: number;
+            /** Fill Count */
+            fill_count: number;
+        };
+        /** LiveWindowInfo */
+        LiveWindowInfo: {
+            /**
+             * Strategy Started At
+             * Format: date-time
+             */
+            strategy_started_at: string;
+            /**
+             * Fetched At
+             * Format: date-time
+             */
+            fetched_at: string;
+            /**
+             * Compared End At
+             * Format: date-time
+             */
+            compared_end_at: string;
+        };
         /** MarketParamsResponse */
         MarketParamsResponse: {
             source: components["schemas"]["DataSource"];
@@ -649,6 +1286,8 @@ export interface components {
             quantity_step_size: number;
             /** Min Notional */
             min_notional: number;
+            /** Reference Price */
+            reference_price?: number | null;
             /**
              * Fetched At
              * Format: date-time
@@ -1431,6 +2070,26 @@ export interface operations {
             };
         };
     };
+    health_ready_api_v1_health_ready_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     metrics_api_api_v1_metrics_get: {
         parameters: {
             query?: never;
@@ -1447,6 +2106,71 @@ export interface operations {
                 };
                 content: {
                     "text/plain": string;
+                };
+            };
+        };
+    };
+    optimization_operation_detail_api_api_v1_operations__operation_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                operation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    optimization_operations_api_api_v1_operations_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string | null;
+                action?: string | null;
+                status?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -1702,6 +2426,72 @@ export interface operations {
             };
         };
     };
+    live_robot_list_api_api_v1_live_robots_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LiveRobotListRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiveRobotListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    live_snapshot_api_api_v1_live_snapshot_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LiveSnapshotRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiveSnapshotResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     start_optimization_api_api_v1_optimization_start_post: {
         parameters: {
             query?: never;
@@ -1921,9 +2711,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: number;
-                    };
+                    "application/json": Record<string, never>;
                 };
             };
             /** @description Validation Error */

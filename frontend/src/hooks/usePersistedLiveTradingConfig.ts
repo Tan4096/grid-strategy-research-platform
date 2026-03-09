@@ -1,11 +1,7 @@
 import { type Dispatch, type SetStateAction, useCallback, useEffect, useState } from "react";
 import { STORAGE_KEYS } from "../lib/storage";
-import {
-  LiveConnectionDraft,
-  LiveCredentials,
-  LiveExchange,
-  LiveMonitoringPreference
-} from "../types";
+import type { LiveConnectionDraft, LiveMonitoringPreference } from "../types";
+import type { LiveCredentials, LiveExchange } from "../lib/api-schema";
 
 type MonitoringPreferenceMap = Record<string, LiveMonitoringPreference>;
 

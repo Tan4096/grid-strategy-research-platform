@@ -1,4 +1,4 @@
-import { OptimizationConfig } from "../../types";
+import type { OptimizationConfig } from "../../lib/api-schema";
 import { activeMode, ComputeMode, inputClass, labelClass, modePreset, SectionCard } from "./shared";
 
 interface Props {

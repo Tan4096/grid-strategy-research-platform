@@ -1,16 +1,14 @@
+import type { AnchorMode, BacktestAnchorPriceResponse, BacktestRequest, BacktestResponse, BacktestStartResponse, BacktestStatusResponse, DataConfig, MarketParamsResponse } from "../../lib/api-schema";
 import {
-  AnchorMode,
-  BacktestAnchorPriceResponse,
-  BacktestRequest,
-  BacktestResponse,
-  BacktestStartResponse,
-  BacktestStatusResponse,
-  DataConfig,
-  MarketParamsResponse
-} from "../../types";
-import {
+  ApiBacktestAnchorPriceRequest,
+  ApiBacktestAnchorPriceResponse,
   ApiBacktestStartRequest,
   ApiBacktestStartResponse,
+  ApiBacktestStatusResponse,
+  ApiFetchDefaultsResponse,
+  ApiMarketParamsResponse,
+  ApiRunBacktestRequest,
+  ApiRunBacktestResponse,
   normalizeBacktestStartResponse
 } from "../api-contract";
 import {
@@ -20,24 +18,26 @@ import {
 } from "./core";
 
 export async function fetchDefaults(options?: RequestOptions): Promise<BacktestRequest> {
-  return requestJson<BacktestRequest>("/api/v1/backtest/defaults", { method: "GET" }, options);
+  const response = await requestJson<ApiFetchDefaultsResponse>("/api/v1/backtest/defaults", { method: "GET" }, options);
+  return response as BacktestRequest;
 }
 
 export async function runBacktest(
   payload: BacktestRequest,
   options?: RequestOptions
 ): Promise<BacktestResponse> {
-  return requestJson<BacktestResponse>(
+  const response = await requestJson<ApiRunBacktestResponse>(
     "/api/v1/backtest/run",
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload as ApiRunBacktestRequest)
     },
     options
   );
+  return response as BacktestResponse;
 }
 
 export async function startBacktest(
@@ -76,24 +76,26 @@ export async function fetchBacktestAnchorPrice(
     query.set("custom_anchor_price", String(anchorOptions.custom_anchor_price));
   }
   const queryText = query.toString();
-  return requestJson<BacktestAnchorPriceResponse>(
+  const response = await requestJson<ApiBacktestAnchorPriceResponse>(
     `/api/v1/backtest/anchor-price${queryText ? `?${queryText}` : ""}`,
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload as ApiBacktestAnchorPriceRequest)
     },
     options
   );
+  return response as BacktestAnchorPriceResponse;
 }
 
 export async function fetchBacktestStatus(
   jobId: string,
   options?: RequestOptions
 ): Promise<BacktestStatusResponse> {
-  return requestJson<BacktestStatusResponse>(`/api/v1/backtest/${jobId}`, { method: "GET" }, options);
+  const response = await requestJson<ApiBacktestStatusResponse>(`/api/v1/backtest/${jobId}`, { method: "GET" }, options);
+  return response as BacktestStatusResponse;
 }
 
 export async function cancelBacktest(
@@ -116,9 +118,10 @@ export async function fetchMarketParams(
     source,
     symbol
   });
-  return requestJson<MarketParamsResponse>(
+  const response = await requestJson<ApiMarketParamsResponse>(
     `/api/v1/market/params?${query.toString()}`,
     { method: "GET" },
     options
   );
+  return response as MarketParamsResponse;
 }

@@ -5,13 +5,8 @@ import type { LiveWorkspaceController } from "./useLiveWorkspaceController";
 import type { MobileWorkspaceState } from "./useMobileWorkspaceState";
 import type { ThemeLayoutController } from "./useThemeLayoutController";
 import type { OperationFeedbackController } from "./useOperationFeedbackController";
-import type {
-  AnchorMode,
-  AppWorkspaceMode,
-  BacktestRequest,
-  LiveConnectionDraft,
-  OptimizationConfig
-} from "../../types";
+import type { AppWorkspaceMode, LiveConnectionDraft } from "../../types";
+import type { AnchorMode, BacktestRequest, OptimizationConfig } from "../../lib/api-schema";
 import type { ThemeSettings } from "../../lib/appTheme";
 
 interface TopBarProps {

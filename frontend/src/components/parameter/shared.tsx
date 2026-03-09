@@ -1,10 +1,5 @@
 import type { JSX } from "react";
-import {
-  BacktestRequest,
-  DataSource,
-  Interval,
-  StrategyConfig
-} from "../../types";
+import type { BacktestRequest, DataSource, Interval, StrategyConfig } from "../../lib/api-schema";
 
 export type NumericFieldSpec = {
   key: keyof StrategyConfig;

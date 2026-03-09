@@ -1,4 +1,4 @@
-import { SortOrder } from "../../../types";
+import type { SortOrder } from "../../../lib/api-schema";
 import {
   OptimizationResultsColumnKey,
   OPTIMIZATION_RESULTS_COLUMN_LABEL

@@ -1,4 +1,4 @@
-import { GridSide } from "../types";
+import type { GridSide } from "../lib/api-schema";
 
 export function buildGridNodes(lower: number, upper: number, grids: number): { nodes: number[]; eps: number } {
   if (!Number.isFinite(lower) || !Number.isFinite(upper) || !Number.isFinite(grids) || grids <= 0) {

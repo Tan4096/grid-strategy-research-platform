@@ -1,5 +1,5 @@
 import { readPlain, STORAGE_KEYS } from "../../lib/storage";
-import type { OptimizationHistoryFailedItem } from "../../types";
+import type { OptimizationHistoryFailedItem } from "../../lib/operation-models";
 import type { OperationLogEntry } from "../../components/optimization/workspace/OptimizationOperationLogPanel";
 
 export const UNKNOWN_FAILURE_MESSAGE = "清空失败，未返回详细原因";

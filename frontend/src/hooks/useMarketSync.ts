@@ -1,6 +1,6 @@
 import { Dispatch, SetStateAction, useCallback, useEffect, useRef, useState } from "react";
 import { fetchMarketParams } from "../lib/api";
-import { BacktestRequest } from "../types";
+import type { BacktestRequest } from "../lib/api-schema";
 
 interface Params {
   request: BacktestRequest;

@@ -2,7 +2,7 @@ import ReactEChartsCore from "echarts-for-react/lib/core";
 import { useEffect, useRef, useState } from "react";
 import { useLayoutCardHeight } from "../hooks/useLayoutCardHeight";
 import { echarts, type RadarChartOption } from "../lib/echarts-radar";
-import { OptimizationRow } from "../types";
+import type { OptimizationRow } from "../lib/api-schema";
 
 interface Props {
   rows: OptimizationRow[];

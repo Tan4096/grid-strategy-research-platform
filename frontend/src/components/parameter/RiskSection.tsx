@@ -1,4 +1,4 @@
-import { AnchorMode, BacktestRequest, StrategyConfig } from "../../types";
+import type { AnchorMode, BacktestRequest, StrategyConfig } from "../../lib/api-schema";
 import {
   estimateInitialAverageEntryAndLiquidationPrice,
   estimateMaxPossibleLossAtStop

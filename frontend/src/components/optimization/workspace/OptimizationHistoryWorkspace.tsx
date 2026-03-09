@@ -1,10 +1,5 @@
-import type {
-  OptimizationHistoryClearResult,
-  OptimizationHistoryRestoreResult,
-  OptimizationProgressResponse,
-  OptimizationRow,
-  OptimizationStatusResponse
-} from "../../../types";
+import type { OptimizationProgressResponse, OptimizationRow, OptimizationStatusResponse } from "../../../lib/api-schema";
+import type { OptimizationHistoryClearResult, OptimizationHistoryRestoreResult } from "../../../lib/operation-models";
 import { useOptimizationHistoryViewModel } from "../../../hooks/optimization/useOptimizationHistoryViewModel";
 import OptimizationBestSummaryCard from "./OptimizationBestSummaryCard";
 import OptimizationHistoryFailureSection from "./OptimizationHistoryFailureSection";

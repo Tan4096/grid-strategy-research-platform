@@ -1,5 +1,5 @@
 import { Suspense, lazy, useMemo, useState } from "react";
-import { OptimizationRow, OptimizationStatusResponse, SortOrder } from "../../../types";
+import type { OptimizationRow, OptimizationStatusResponse, SortOrder } from "../../../lib/api-schema";
 import OptimizationBestSummaryCard from "./OptimizationBestSummaryCard";
 import MobileAnalysisSheet from "./MobileAnalysisSheet";
 import MobileResultsTableSheet from "./MobileResultsTableSheet";

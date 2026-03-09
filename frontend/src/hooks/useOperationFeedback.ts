@@ -1,12 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  OperationEvent,
-  OperationEventCategory,
-  OperationEventKind,
-  OperationEventStatus,
-  OperationRecord,
-  OptimizationHistoryFailedItem
-} from "../types";
+import type { OperationEvent, OperationEventCategory, OperationEventKind, OperationEventStatus, OperationRecord, OptimizationHistoryFailedItem } from "../lib/operation-models";
 import { NOTICE_ADVICE, buildNoticeDetail } from "../lib/notificationCopy";
 import { STORAGE_KEYS } from "../lib/storage";
 

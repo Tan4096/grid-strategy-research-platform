@@ -1,12 +1,8 @@
 import type { Dispatch, SetStateAction } from "react";
 import { useCallback, useMemo, useState } from "react";
 import { STORAGE_KEYS, writePlain } from "../lib/storage";
-import {
-  LiveConnectionDraft,
-  LiveExchange,
-  LiveRobotListItem,
-  LiveRobotListScope
-} from "../types";
+import type { LiveConnectionDraft } from "../types";
+import type { LiveExchange, LiveRobotListItem, LiveRobotListScope } from "../lib/api-schema";
 import { inputClass, labelClass } from "./parameter/shared";
 
 interface Props {
@@ -290,18 +286,6 @@ export default function LiveConnectionPanel({
                   </option>
                 ))}
               </select>
-              <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
-                <span>{selectedRobot ? `当前对象：${formatRobotSummary(selectedRobot)}` : "需选择一个机器人后才能开始监测"}</span>
-                {selectedRobot ? <span>完整 algoId：{selectedRobot.algo_id}</span> : null}
-                <button
-                  type="button"
-                  className="ui-btn ui-btn-secondary ui-btn-xs"
-                  disabled={!credentialsReady || loading}
-                  onClick={onRefreshRobots}
-                >
-                  刷新列表
-                </button>
-              </div>
             </div>
           </div>
           <div className="mt-2 rounded border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
@@ -319,6 +303,14 @@ export default function LiveConnectionPanel({
             </label>
           </div>
           <div className="mt-2 flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              className="ui-btn ui-btn-secondary ui-btn-xs"
+              disabled={!credentialsReady || loading}
+              onClick={onRefreshRobots}
+            >
+              刷新列表
+            </button>
             <button
               type="button"
               className="ui-btn ui-btn-secondary ui-btn-xs"

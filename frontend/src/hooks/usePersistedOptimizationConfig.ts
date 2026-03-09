@@ -5,7 +5,7 @@ import {
   OPTIMIZATION_STORAGE_VERSION
 } from "../lib/defaults";
 import { STORAGE_KEYS, readVersioned, writeVersioned } from "../lib/storage";
-import { OptimizationConfig, SweepRange } from "../types";
+import type { OptimizationConfig, SweepRange } from "../lib/api-schema";
 
 function mergeSweepRange(defaultSweep: SweepRange, candidateSweep: unknown): SweepRange {
   if (!candidateSweep || typeof candidateSweep !== "object") {

@@ -1,5 +1,5 @@
 import { ReactNode } from "react";
-import { BacktestRequest, OptimizationConfig } from "../../../types";
+import type { BacktestRequest, OptimizationConfig } from "../../../lib/api-schema";
 import OptimizationTemplateSection from "../OptimizationTemplateSection";
 import PositionSection from "../PositionSection";
 import RangeSection from "../RangeSection";

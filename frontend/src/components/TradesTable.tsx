@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { usePersistedSortOrder } from "../hooks/usePersistedSortOrder";
 import { readPlain, STORAGE_KEYS, writePlain } from "../lib/storage";
 import SortOrderSwitch from "./SortOrderSwitch";
-import { EventLog, SortOrder, TradeEvent } from "../types";
+import type { EventLog, SortOrder, TradeEvent } from "../lib/api-schema";
 
 type ViewMode = "fills" | "closed";
 

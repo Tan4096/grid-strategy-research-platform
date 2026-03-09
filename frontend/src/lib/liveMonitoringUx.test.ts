@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { LiveRobotListItem, LiveSnapshotResponse } from "../types";
+import type { LiveRobotListItem, LiveSnapshotResponse } from "../lib/api-schema";
 import {
   buildLiveMonitoringHeadline,
   buildLiveMonitoringReadiness,

@@ -1,4 +1,6 @@
-import { Dispatch, MutableRefObject, SetStateAction, useEffect } from "react";
+import { Dispatch, MutableRefObject, SetStateAction, useEffect, useRef } from "react";
+import { usePollingLifecycle } from "./usePollingLifecycle";
+import { createSsePollingFallbackController } from "./createSsePollingFallbackController";
 import {
   buildJobStreamUrl,
   fetchOptimizationProgress,
@@ -8,13 +10,8 @@ import {
   parseJobStreamUpdate
 } from "../lib/api";
 import type { OptimizationResultTab } from "../components/OptimizationPanel";
-import {
-  JobTransportMode,
-  OptimizationJobMeta,
-  OptimizationProgressResponse,
-  OptimizationStatusResponse,
-  SortOrder
-} from "../types";
+import type { JobTransportMode } from "../types";
+import type { OptimizationJobMeta, OptimizationProgressResponse, OptimizationStatusResponse, SortOrder } from "../lib/api-schema";
 import { NOTICE_ADVICE, buildJobLabel, buildNoticeDetail } from "../lib/notificationCopy";
 import type { EmitOperationEventInput } from "./useOperationFeedback";
 
@@ -161,6 +158,12 @@ export function useOptimizationPolling({
   lastProgressRef,
   notifiedTerminalRef
 }: Params): void {
+  const resumePollingRef = useRef<() => void>(() => undefined);
+  const { clear: clearPollingTimer, isPageVisible, schedule: schedulePolling } = usePollingLifecycle({
+    enabled: Boolean(optimizationJobId),
+    onResume: () => resumePollingRef.current()
+  });
+
   useEffect(() => {
     if (!optimizationJobId) {
       setOptimizationTransportMode("idle");
@@ -168,10 +171,7 @@ export function useOptimizationPolling({
     }
 
     let cancelled = false;
-    let timer: number | null = null;
-    let connectingTimer: number | null = null;
     let sseProbeTimer: number | null = null;
-    let stream: EventSource | null = null;
     let tick = 0;
     let terminalReached = false;
     let pollingStarted = false;
@@ -185,9 +185,10 @@ export function useOptimizationPolling({
       if (cancelled) {
         return;
       }
-      const hidden = document.visibilityState !== "visible";
-      const nextMs = running ? (hidden ? 8000 : 1500) : hidden ? 15000 : 5000;
-      timer = window.setTimeout(pollOnce, nextMs);
+      const nextMs = running ? (isPageVisible() ? 1500 : 8000) : isPageVisible() ? 5000 : 15000;
+      schedulePolling(nextMs, () => {
+        void pollOnce();
+      });
     };
 
     const clearSseProbe = () => {
@@ -394,7 +395,7 @@ export function useOptimizationPolling({
         tick += 1;
         keepRunning = !terminal;
 
-        const fullFetchEvery = document.visibilityState === "visible" ? 4 : 8;
+        const fullFetchEvery = isPageVisible() ? 4 : 8;
         const shouldFetchStatus = terminal || tick % fullFetchEvery === 1;
         let statusFetchSucceeded = true;
         if (shouldFetchStatus) {
@@ -441,7 +442,7 @@ export function useOptimizationPolling({
     };
 
     const probeWhileSseConnected = async () => {
-      if (cancelled || terminalReached || pollingStarted || !stream) {
+      if (cancelled || terminalReached || pollingStarted) {
         return;
       }
       const progressController = new AbortController();
@@ -456,7 +457,7 @@ export function useOptimizationPolling({
         }
         const terminal = applyProgressPayload(progress);
         tick += 1;
-        const fullFetchEvery = document.visibilityState === "visible" ? 4 : 8;
+        const fullFetchEvery = isPageVisible() ? 4 : 8;
         const shouldFetchStatus = terminal || tick % fullFetchEvery === 1;
         let statusFetchSucceeded = true;
         if (shouldFetchStatus) {
@@ -477,8 +478,7 @@ export function useOptimizationPolling({
           terminalReached = true;
           setOptimizationTransportMode("idle");
           clearSseProbe();
-          stream?.close();
-          stream = null;
+          sseController.cleanup();
         }
       } catch {
         // Keep SSE mode as source of truth; periodic probe is best-effort only.
@@ -492,10 +492,6 @@ export function useOptimizationPolling({
         return;
       }
       clearSseProbe();
-      if (connectingTimer) {
-        window.clearTimeout(connectingTimer);
-        connectingTimer = null;
-      }
       pollingStarted = true;
       setOptimizationTransportMode("polling");
       if (!reportedPollingFallback) {
@@ -513,47 +509,25 @@ export function useOptimizationPolling({
       void pollOnce();
     };
 
-    const setupSse = () => {
-      if (typeof EventSource === "undefined") {
-        startPollingFallback();
-        return;
-      }
-      try {
-        setOptimizationTransportMode("connecting");
-        stream = new EventSource(buildJobStreamUrl(optimizationJobId, "optimization"));
-        connectingTimer = window.setTimeout(() => {
-          if (cancelled || terminalReached || pollingStarted) {
-            return;
-          }
-          stream?.close();
-          stream = null;
-          startPollingFallback();
-        }, 5000);
-      } catch {
-        startPollingFallback();
-        return;
-      }
-      stream.addEventListener("open", () => {
-        if (!cancelled) {
-          if (connectingTimer) {
-            window.clearTimeout(connectingTimer);
-            connectingTimer = null;
-          }
-          setOptimizationTransportMode("sse");
-          if (sseProbeTimer === null) {
-            const intervalMs = document.visibilityState === "visible" ? 2000 : 6000;
-            sseProbeTimer = window.setInterval(() => {
-              void probeWhileSseConnected();
-            }, intervalMs);
-          }
+    const sseController = createSsePollingFallbackController({
+      streamUrl: buildJobStreamUrl(optimizationJobId, "optimization"),
+      setTransportMode: setOptimizationTransportMode,
+      isStopped: () => cancelled || terminalReached,
+      isPollingActive: () => pollingStarted,
+      onStartPollingFallback: startPollingFallback,
+      onOpen: () => {
+        if (sseProbeTimer === null) {
+          const intervalMs = isPageVisible() ? 2000 : 6000;
+          sseProbeTimer = window.setInterval(() => {
+            void probeWhileSseConnected();
+          }, intervalMs);
         }
-      });
-
-      stream.addEventListener("update", (event) => {
+      },
+      onUpdate: (event) => {
         if (cancelled || terminalReached) {
           return;
         }
-        const parsed = parseJobStreamUpdate<OptimizationProgressResponse>((event as MessageEvent<string>).data);
+        const parsed = parseJobStreamUpdate<OptimizationProgressResponse>(event.data);
         if (
           !parsed ||
           parsed.job_type !== "optimization" ||
@@ -564,7 +538,7 @@ export function useOptimizationPolling({
         }
         tick += 1;
         const terminal = applyProgressPayload(parsed.payload);
-        const fullFetchEvery = document.visibilityState === "visible" ? 4 : 8;
+        const fullFetchEvery = isPageVisible() ? 4 : 8;
         const shouldFetchStatus = terminal || tick % fullFetchEvery === 1;
         if (shouldFetchStatus) {
           void fetchStatusSnapshot(terminal);
@@ -573,53 +547,40 @@ export function useOptimizationPolling({
           terminalReached = true;
           setOptimizationTransportMode("idle");
           clearSseProbe();
-          stream?.close();
-          stream = null;
+          sseController.cleanup();
         }
-      });
-      stream.addEventListener("error", () => {
-        if (cancelled || terminalReached) {
-          return;
-        }
-        if (connectingTimer) {
-          window.clearTimeout(connectingTimer);
-          connectingTimer = null;
-        }
-        clearSseProbe();
-        stream?.close();
-        stream = null;
-        startPollingFallback();
-      });
-    };
-
-    const handleVisible = () => {
-      if (document.visibilityState === "visible" && timer) {
-        window.clearTimeout(timer);
-        timer = null;
-        if (pollingStarted) {
+      },
+      onStreamError: clearSseProbe,
+      onResumePolling: () => {
+        if (pollingStarted && !terminalReached) {
           void pollOnce();
         }
-      } else if (document.visibilityState === "visible" && !pollingStarted && stream) {
+      },
+      onResumeStreaming: () => {
         void probeWhileSseConnected();
       }
+    });
+
+    resumePollingRef.current = () => {
+      if (pollingStarted && !terminalReached) {
+        void pollOnce();
+        return;
+      }
+      void probeWhileSseConnected();
     };
-    document.addEventListener("visibilitychange", handleVisible);
-    setupSse();
+    sseController.start();
 
     return () => {
       cancelled = true;
       setOptimizationTransportMode("idle");
-      stream?.close();
-      if (timer) {
-        window.clearTimeout(timer);
-      }
-      if (connectingTimer) {
-        window.clearTimeout(connectingTimer);
-      }
+      clearPollingTimer();
+      sseController.cleanup();
       clearSseProbe();
-      document.removeEventListener("visibilitychange", handleVisible);
+      resumePollingRef.current = () => undefined;
     };
   }, [
+    clearPollingTimer,
+    isPageVisible,
     optimizationJobId,
     optimizationPage,
     optimizationPageSize,
@@ -632,6 +593,7 @@ export function useOptimizationPolling({
     setOptimizationTransportMode,
     refreshOptimizationHistory,
     notifyCenter,
+    schedulePolling,
     showToast,
     lastProgressRef,
     notifiedTerminalRef

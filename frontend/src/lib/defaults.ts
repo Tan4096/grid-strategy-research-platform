@@ -1,4 +1,4 @@
-import { BacktestRequest, OptimizationConfig } from "../types";
+import type { BacktestRequest, OptimizationConfig } from "../lib/api-schema";
 
 const MINUTE_MS = 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;

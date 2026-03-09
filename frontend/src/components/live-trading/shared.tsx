@@ -1,4 +1,4 @@
-import type { LiveDiagnostic, LiveLedgerEntry, LiveSnapshotResponse } from "../../types";
+import type { LiveDiagnostic, LiveLedgerEntry, LiveSnapshotResponse } from "../../lib/api-schema";
 import type {
   LiveMonitoringIntegrityLevel,
   LiveMonitoringRiskLevel

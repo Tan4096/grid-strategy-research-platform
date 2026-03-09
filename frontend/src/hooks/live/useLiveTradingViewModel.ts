@@ -3,7 +3,8 @@ import type { Dispatch, SetStateAction } from "react";
 import { buildLivePnlCurve } from "../../lib/livePnlCurve";
 import { buildLiveMonitoringHeadline } from "../../lib/liveMonitoringUx";
 import { DRAWDOWN_CURVE_COLOR } from "../../lib/curveColors";
-import type { BacktestRequest, LiveDiagnostic, LiveLedgerEntry, LiveMonitoringTrendPoint, LiveSnapshotResponse } from "../../types";
+import type { LiveMonitoringTrendPoint } from "../../types";
+import type { BacktestRequest, LiveDiagnostic, LiveLedgerEntry, LiveSnapshotResponse } from "../../lib/api-schema";
 import {
   type LedgerKindFilter,
   type LedgerMakerFilter,

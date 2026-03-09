@@ -1,11 +1,5 @@
-import {
-  LiveFill,
-  LiveOpenOrder,
-  LiveSnapshotResponse,
-  OperationEventCategory,
-  OperationEventKind,
-  OperationEventStatus
-} from "../types";
+import type { LiveFill, LiveOpenOrder, LiveSnapshotResponse } from "../lib/api-schema";
+import type { OperationEventCategory, OperationEventKind, OperationEventStatus } from "../lib/operation-models";
 import { NOTICE_ADVICE, buildNoticeDetail } from "./notificationCopy";
 import { buildLiveMonitoringHeadline, type LiveMonitoringAttentionItem } from "./liveMonitoringUx";
 

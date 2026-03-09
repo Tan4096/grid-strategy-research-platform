@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { fetchOperation, fetchOperations, getApiErrorInfo } from "../../lib/api";
 import { NOTICE_ADVICE, buildNoticeDetail } from "../../lib/notificationCopy";
-import type { OperationEventCategory } from "../../types";
+import type { OperationEventCategory } from "../../lib/operation-models";
 import {
   type EmitOperationEventInput,
   useOperationFeedback

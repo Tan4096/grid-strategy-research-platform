@@ -1,4 +1,4 @@
-import { OptimizationRow } from "../../../types";
+import type { OptimizationRow } from "../../../lib/api-schema";
 import { humanizeConstraintList } from "../constraints";
 
 interface Props {

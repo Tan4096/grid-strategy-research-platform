@@ -1,4 +1,5 @@
-import { CurvePoint, LiveMonitoringTrendPoint, LiveSnapshotResponse } from "../types";
+import type { LiveMonitoringTrendPoint } from "../types";
+import type { CurvePoint, LiveSnapshotResponse } from "../lib/api-schema";
 
 export type LivePnlCurveSource = "replay" | "simulated" | "ledger" | "daily" | "trend" | "snapshot";
 

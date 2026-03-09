@@ -1,4 +1,4 @@
-import { BacktestRequest, LiveSnapshotResponse } from "../types";
+import type { BacktestRequest, LiveSnapshotResponse } from "../lib/api-schema";
 
 function alignIsoToMinute(value: string): string | null {
   const parsed = new Date(value);

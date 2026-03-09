@@ -8,6 +8,9 @@
   "paths": {
     "/api/v1/health": {
       "get": {
+        "tags": [
+          "ops"
+        ],
         "summary": "Health",
         "operationId": "health_api_v1_health_get",
         "responses": {
@@ -28,8 +31,32 @@
         }
       }
     },
+    "/api/v1/health/ready": {
+      "get": {
+        "tags": [
+          "ops"
+        ],
+        "summary": "Health Ready",
+        "operationId": "health_ready_api_v1_health_ready_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Health Ready Api V1 Health Ready Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/metrics": {
       "get": {
+        "tags": [
+          "ops"
+        ],
         "summary": "Metrics Api",
         "operationId": "metrics_api_api_v1_metrics_get",
         "responses": {
@@ -46,8 +73,148 @@
         }
       }
     },
+    "/api/v1/operations/{operation_id}": {
+      "get": {
+        "tags": [
+          "ops"
+        ],
+        "summary": "Optimization Operation Detail Api",
+        "operationId": "optimization_operation_detail_api_api_v1_operations__operation_id__get",
+        "parameters": [
+          {
+            "name": "operation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Operation Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Optimization Operation Detail Api Api V1 Operations  Operation Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/operations": {
+      "get": {
+        "tags": [
+          "ops"
+        ],
+        "summary": "Optimization Operations Api",
+        "operationId": "optimization_operations_api_api_v1_operations_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 30,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Action"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Optimization Operations Api Api V1 Operations Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/backtest/defaults": {
       "get": {
+        "tags": [
+          "backtest"
+        ],
         "summary": "Get Defaults",
         "operationId": "get_defaults_api_v1_backtest_defaults_get",
         "responses": {
@@ -66,6 +233,9 @@
     },
     "/api/v1/backtest/run": {
       "post": {
+        "tags": [
+          "backtest"
+        ],
         "summary": "Run Backtest Api",
         "operationId": "run_backtest_api_api_v1_backtest_run_post",
         "requestBody": {
@@ -104,6 +274,9 @@
     },
     "/api/v1/backtest/start": {
       "post": {
+        "tags": [
+          "backtest"
+        ],
         "summary": "Start Backtest Api",
         "operationId": "start_backtest_api_api_v1_backtest_start_post",
         "parameters": [
@@ -160,6 +333,9 @@
     },
     "/api/v1/backtest/anchor-price": {
       "post": {
+        "tags": [
+          "backtest"
+        ],
         "summary": "Backtest Anchor Price Api",
         "operationId": "backtest_anchor_price_api_api_v1_backtest_anchor_price_post",
         "parameters": [
@@ -231,6 +407,9 @@
     },
     "/api/v1/backtest/{job_id}": {
       "get": {
+        "tags": [
+          "backtest"
+        ],
         "summary": "Backtest Status Api",
         "operationId": "backtest_status_api_api_v1_backtest__job_id__get",
         "parameters": [
@@ -270,6 +449,9 @@
     },
     "/api/v1/jobs/{job_id}/stream": {
       "get": {
+        "tags": [
+          "backtest"
+        ],
         "summary": "Job Stream Api",
         "operationId": "job_stream_api_api_v1_jobs__job_id__stream_get",
         "parameters": [
@@ -316,6 +498,9 @@
     },
     "/api/v1/backtest/{job_id}/cancel": {
       "post": {
+        "tags": [
+          "backtest"
+        ],
         "summary": "Backtest Cancel Api",
         "operationId": "backtest_cancel_api_api_v1_backtest__job_id__cancel_post",
         "parameters": [
@@ -359,6 +544,9 @@
     },
     "/api/v1/market/params": {
       "get": {
+        "tags": [
+          "backtest"
+        ],
         "summary": "Market Params Api",
         "operationId": "market_params_api_api_v1_market_params_get",
         "parameters": [
@@ -411,8 +599,93 @@
         }
       }
     },
+    "/api/v1/live/robots": {
+      "post": {
+        "tags": [
+          "live"
+        ],
+        "summary": "Live Robot List Api",
+        "operationId": "live_robot_list_api_api_v1_live_robots_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LiveRobotListRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveRobotListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/live/snapshot": {
+      "post": {
+        "tags": [
+          "live"
+        ],
+        "summary": "Live Snapshot Api",
+        "operationId": "live_snapshot_api_api_v1_live_snapshot_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LiveSnapshotRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveSnapshotResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/optimization/start": {
       "post": {
+        "tags": [
+          "optimization"
+        ],
         "summary": "Start Optimization Api",
         "operationId": "start_optimization_api_api_v1_optimization_start_post",
         "parameters": [
@@ -469,6 +742,9 @@
     },
     "/api/v1/optimization/{job_id}": {
       "get": {
+        "tags": [
+          "optimization"
+        ],
         "summary": "Optimization Status Api",
         "operationId": "optimization_status_api_api_v1_optimization__job_id__get",
         "parameters": [
@@ -555,6 +831,9 @@
     },
     "/api/v1/optimization/{job_id}/rows": {
       "get": {
+        "tags": [
+          "optimization"
+        ],
         "summary": "Optimization Rows Api",
         "operationId": "optimization_rows_api_api_v1_optimization__job_id__rows_get",
         "parameters": [
@@ -641,6 +920,9 @@
     },
     "/api/v1/optimization/{job_id}/heatmap": {
       "get": {
+        "tags": [
+          "optimization"
+        ],
         "summary": "Optimization Heatmap Api",
         "operationId": "optimization_heatmap_api_api_v1_optimization__job_id__heatmap_get",
         "parameters": [
@@ -680,6 +962,9 @@
     },
     "/api/v1/optimization/{job_id}/progress": {
       "get": {
+        "tags": [
+          "optimization"
+        ],
         "summary": "Optimization Progress Api",
         "operationId": "optimization_progress_api_api_v1_optimization__job_id__progress_get",
         "parameters": [
@@ -719,6 +1004,9 @@
     },
     "/api/v1/optimization-history": {
       "get": {
+        "tags": [
+          "optimization"
+        ],
         "summary": "Optimization History Api",
         "operationId": "optimization_history_api_api_v1_optimization_history_get",
         "parameters": [
@@ -791,6 +1079,9 @@
         }
       },
       "delete": {
+        "tags": [
+          "optimization"
+        ],
         "summary": "Optimization History Clear Api",
         "operationId": "optimization_history_clear_api_api_v1_optimization_history_delete",
         "parameters": [
@@ -818,9 +1109,6 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "additionalProperties": {
-                    "type": "integer"
-                  },
                   "title": "Response Optimization History Clear Api Api V1 Optimization History Delete"
                 }
               }
@@ -841,6 +1129,9 @@
     },
     "/api/v1/optimization-history/selected": {
       "delete": {
+        "tags": [
+          "optimization"
+        ],
         "summary": "Optimization History Selected Clear Api",
         "operationId": "optimization_history_selected_clear_api_api_v1_optimization_history_selected_delete",
         "parameters": [
@@ -917,6 +1208,9 @@
     },
     "/api/v1/optimization-history/restore-selected": {
       "post": {
+        "tags": [
+          "optimization"
+        ],
         "summary": "Optimization History Selected Restore Api",
         "operationId": "optimization_history_selected_restore_api_api_v1_optimization_history_restore_selected_post",
         "parameters": [
@@ -961,6 +1255,9 @@
     },
     "/api/v1/optimization/{job_id}/cancel": {
       "post": {
+        "tags": [
+          "optimization"
+        ],
         "summary": "Optimization Cancel Api",
         "operationId": "optimization_cancel_api_api_v1_optimization__job_id__cancel_post",
         "parameters": [
@@ -1004,6 +1301,9 @@
     },
     "/api/v1/optimization/{job_id}/restart": {
       "post": {
+        "tags": [
+          "optimization"
+        ],
         "summary": "Optimization Restart Api",
         "operationId": "optimization_restart_api_api_v1_optimization__job_id__restart_post",
         "parameters": [
@@ -1043,6 +1343,9 @@
     },
     "/api/v1/optimization/{job_id}/export": {
       "get": {
+        "tags": [
+          "optimization"
+        ],
         "summary": "Optimization Export Api",
         "operationId": "optimization_export_api_api_v1_optimization__job_id__export_get",
         "parameters": [
@@ -1293,6 +1596,13 @@
             "type": "array",
             "title": "Drawdown Curve"
           },
+          "unrealized_pnl_curve": {
+            "items": {
+              "$ref": "#/components/schemas/CurvePoint"
+            },
+            "type": "array",
+            "title": "Unrealized Pnl Curve"
+          },
           "margin_ratio_curve": {
             "items": {
               "$ref": "#/components/schemas/CurvePoint"
@@ -1356,6 +1666,7 @@
           "grid_lines",
           "equity_curve",
           "drawdown_curve",
+          "unrealized_pnl_curve",
           "margin_ratio_curve",
           "leverage_usage_curve",
           "liquidation_price_curve",
@@ -1485,6 +1796,14 @@
             "type": "number",
             "title": "Funding Paid"
           },
+          "funding_net": {
+            "type": "number",
+            "title": "Funding Net"
+          },
+          "funding_statement_amount": {
+            "type": "number",
+            "title": "Funding Statement Amount"
+          },
           "use_base_position": {
             "type": "boolean",
             "title": "Use Base Position"
@@ -1521,6 +1840,8 @@
           "status",
           "fees_paid",
           "funding_paid",
+          "funding_net",
+          "funding_statement_amount",
           "use_base_position",
           "base_grid_count",
           "initial_position_size",
@@ -1811,6 +2132,1472 @@
         ],
         "title": "JobStreamType"
       },
+      "LiveAccountInfo": {
+        "properties": {
+          "exchange": {
+            "$ref": "#/components/schemas/LiveExchange"
+          },
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "exchange_symbol": {
+            "type": "string",
+            "title": "Exchange Symbol"
+          },
+          "algo_id": {
+            "type": "string",
+            "title": "Algo Id"
+          },
+          "strategy_started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Strategy Started At"
+          },
+          "fetched_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Fetched At"
+          },
+          "masked_api_key": {
+            "type": "string",
+            "title": "Masked Api Key"
+          }
+        },
+        "type": "object",
+        "required": [
+          "exchange",
+          "symbol",
+          "exchange_symbol",
+          "algo_id",
+          "strategy_started_at",
+          "fetched_at",
+          "masked_api_key"
+        ],
+        "title": "LiveAccountInfo"
+      },
+      "LiveCompleteness": {
+        "properties": {
+          "fills_complete": {
+            "type": "boolean",
+            "title": "Fills Complete",
+            "default": true
+          },
+          "funding_complete": {
+            "type": "boolean",
+            "title": "Funding Complete",
+            "default": true
+          },
+          "bills_window_clipped": {
+            "type": "boolean",
+            "title": "Bills Window Clipped",
+            "default": false
+          },
+          "partial_failures": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Partial Failures"
+          }
+        },
+        "type": "object",
+        "title": "LiveCompleteness"
+      },
+      "LiveCredentials": {
+        "properties": {
+          "api_key": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Api Key"
+          },
+          "api_secret": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Api Secret"
+          },
+          "passphrase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Passphrase"
+          }
+        },
+        "type": "object",
+        "required": [
+          "api_key",
+          "api_secret"
+        ],
+        "title": "LiveCredentials"
+      },
+      "LiveDailyBreakdown": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "title": "Date"
+          },
+          "realized_pnl": {
+            "type": "number",
+            "title": "Realized Pnl",
+            "default": 0.0
+          },
+          "fees_paid": {
+            "type": "number",
+            "title": "Fees Paid",
+            "default": 0.0
+          },
+          "funding_net": {
+            "type": "number",
+            "title": "Funding Net",
+            "default": 0.0
+          },
+          "trading_net": {
+            "type": "number",
+            "title": "Trading Net",
+            "default": 0.0
+          },
+          "total_pnl": {
+            "type": "number",
+            "title": "Total Pnl",
+            "default": 0.0
+          },
+          "entry_count": {
+            "type": "integer",
+            "title": "Entry Count",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "date"
+        ],
+        "title": "LiveDailyBreakdown"
+      },
+      "LiveDiagnostic": {
+        "properties": {
+          "level": {
+            "type": "string",
+            "enum": [
+              "info",
+              "warning",
+              "error"
+            ],
+            "title": "Level"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "action_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action Hint"
+          }
+        },
+        "type": "object",
+        "required": [
+          "level",
+          "code",
+          "message"
+        ],
+        "title": "LiveDiagnostic"
+      },
+      "LiveExchange": {
+        "type": "string",
+        "enum": [
+          "binance",
+          "bybit",
+          "okx"
+        ],
+        "title": "LiveExchange"
+      },
+      "LiveFill": {
+        "properties": {
+          "trade_id": {
+            "type": "string",
+            "title": "Trade Id"
+          },
+          "order_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Id"
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "buy",
+              "sell"
+            ],
+            "title": "Side"
+          },
+          "price": {
+            "type": "number",
+            "title": "Price"
+          },
+          "quantity": {
+            "type": "number",
+            "title": "Quantity"
+          },
+          "realized_pnl": {
+            "type": "number",
+            "title": "Realized Pnl",
+            "default": 0.0
+          },
+          "fee": {
+            "type": "number",
+            "title": "Fee",
+            "default": 0.0
+          },
+          "fee_currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fee Currency"
+          },
+          "is_maker": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Maker"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Timestamp"
+          }
+        },
+        "type": "object",
+        "required": [
+          "trade_id",
+          "side",
+          "price",
+          "quantity",
+          "timestamp"
+        ],
+        "title": "LiveFill"
+      },
+      "LiveFundingEntry": {
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Timestamp"
+          },
+          "amount": {
+            "type": "number",
+            "title": "Amount"
+          },
+          "rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate"
+          },
+          "position_size": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position Size"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          }
+        },
+        "type": "object",
+        "required": [
+          "timestamp",
+          "amount"
+        ],
+        "title": "LiveFundingEntry"
+      },
+      "LiveInferredGrid": {
+        "properties": {
+          "lower": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lower"
+          },
+          "upper": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Upper"
+          },
+          "grid_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Count"
+          },
+          "grid_spacing": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Spacing"
+          },
+          "active_level_count": {
+            "type": "integer",
+            "title": "Active Level Count",
+            "default": 0
+          },
+          "active_levels": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Active Levels"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence",
+            "default": 0.0
+          },
+          "use_base_position": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Use Base Position"
+          },
+          "side": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GridSide"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "title": "LiveInferredGrid"
+      },
+      "LiveLedgerEntry": {
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Timestamp"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "trade",
+              "fee",
+              "funding"
+            ],
+            "title": "Kind"
+          },
+          "amount": {
+            "type": "number",
+            "title": "Amount"
+          },
+          "pnl": {
+            "type": "number",
+            "title": "Pnl",
+            "default": 0.0
+          },
+          "fee": {
+            "type": "number",
+            "title": "Fee",
+            "default": 0.0
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "side": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "buy",
+                  "sell"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Side"
+          },
+          "order_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Id"
+          },
+          "trade_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trade Id"
+          },
+          "is_maker": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Maker"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "timestamp",
+          "kind",
+          "amount"
+        ],
+        "title": "LiveLedgerEntry"
+      },
+      "LiveLedgerSummary": {
+        "properties": {
+          "trading_net": {
+            "type": "number",
+            "title": "Trading Net"
+          },
+          "fees": {
+            "type": "number",
+            "title": "Fees"
+          },
+          "funding": {
+            "type": "number",
+            "title": "Funding"
+          },
+          "total_pnl": {
+            "type": "number",
+            "title": "Total Pnl"
+          },
+          "realized": {
+            "type": "number",
+            "title": "Realized"
+          },
+          "unrealized": {
+            "type": "number",
+            "title": "Unrealized"
+          }
+        },
+        "type": "object",
+        "required": [
+          "trading_net",
+          "fees",
+          "funding",
+          "total_pnl",
+          "realized",
+          "unrealized"
+        ],
+        "title": "LiveLedgerSummary"
+      },
+      "LiveMonitoringInfo": {
+        "properties": {
+          "poll_interval_sec": {
+            "type": "integer",
+            "title": "Poll Interval Sec"
+          },
+          "last_success_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Last Success At"
+          },
+          "freshness_sec": {
+            "type": "integer",
+            "title": "Freshness Sec"
+          },
+          "stale": {
+            "type": "boolean",
+            "title": "Stale",
+            "default": false
+          },
+          "source_latency_ms": {
+            "type": "integer",
+            "title": "Source Latency Ms",
+            "default": 0
+          },
+          "fills_page_count": {
+            "type": "integer",
+            "title": "Fills Page Count",
+            "default": 0
+          },
+          "fills_capped": {
+            "type": "boolean",
+            "title": "Fills Capped",
+            "default": false
+          },
+          "orders_page_count": {
+            "type": "integer",
+            "title": "Orders Page Count",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "poll_interval_sec",
+          "last_success_at",
+          "freshness_sec"
+        ],
+        "title": "LiveMonitoringInfo"
+      },
+      "LiveOpenOrder": {
+        "properties": {
+          "order_id": {
+            "type": "string",
+            "title": "Order Id"
+          },
+          "client_order_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Order Id"
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "buy",
+              "sell"
+            ],
+            "title": "Side"
+          },
+          "price": {
+            "type": "number",
+            "title": "Price"
+          },
+          "quantity": {
+            "type": "number",
+            "title": "Quantity"
+          },
+          "filled_quantity": {
+            "type": "number",
+            "title": "Filled Quantity",
+            "default": 0.0
+          },
+          "reduce_only": {
+            "type": "boolean",
+            "title": "Reduce Only",
+            "default": false
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "default": "open"
+          },
+          "timestamp": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timestamp"
+          }
+        },
+        "type": "object",
+        "required": [
+          "order_id",
+          "side",
+          "price",
+          "quantity"
+        ],
+        "title": "LiveOpenOrder"
+      },
+      "LivePosition": {
+        "properties": {
+          "side": {
+            "type": "string",
+            "enum": [
+              "long",
+              "short",
+              "flat"
+            ],
+            "title": "Side",
+            "default": "flat"
+          },
+          "quantity": {
+            "type": "number",
+            "title": "Quantity",
+            "default": 0.0
+          },
+          "entry_price": {
+            "type": "number",
+            "title": "Entry Price",
+            "default": 0.0
+          },
+          "mark_price": {
+            "type": "number",
+            "title": "Mark Price",
+            "default": 0.0
+          },
+          "notional": {
+            "type": "number",
+            "title": "Notional",
+            "default": 0.0
+          },
+          "leverage": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Leverage"
+          },
+          "liquidation_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Liquidation Price"
+          },
+          "margin_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Margin Mode"
+          },
+          "unrealized_pnl": {
+            "type": "number",
+            "title": "Unrealized Pnl",
+            "default": 0.0
+          },
+          "realized_pnl": {
+            "type": "number",
+            "title": "Realized Pnl",
+            "default": 0.0
+          }
+        },
+        "type": "object",
+        "title": "LivePosition"
+      },
+      "LiveRobotListItem": {
+        "properties": {
+          "algo_id": {
+            "type": "string",
+            "title": "Algo Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "exchange_symbol": {
+            "type": "string",
+            "title": "Exchange Symbol"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State"
+          },
+          "side": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "long",
+                  "short",
+                  "flat"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Side"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "run_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Type"
+          },
+          "configured_leverage": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Configured Leverage"
+          },
+          "investment_usdt": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Investment Usdt"
+          },
+          "lower_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lower Price"
+          },
+          "upper_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Upper Price"
+          },
+          "grid_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "algo_id",
+          "name",
+          "symbol",
+          "exchange_symbol"
+        ],
+        "title": "LiveRobotListItem"
+      },
+      "LiveRobotListRequest": {
+        "properties": {
+          "exchange": {
+            "$ref": "#/components/schemas/LiveExchange"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "running",
+              "recent"
+            ],
+            "title": "Scope",
+            "default": "running"
+          },
+          "credentials": {
+            "$ref": "#/components/schemas/LiveCredentials"
+          }
+        },
+        "type": "object",
+        "required": [
+          "exchange",
+          "credentials"
+        ],
+        "title": "LiveRobotListRequest"
+      },
+      "LiveRobotListResponse": {
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "running",
+              "recent"
+            ],
+            "title": "Scope",
+            "default": "running"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LiveRobotListItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "title": "LiveRobotListResponse"
+      },
+      "LiveRobotOverview": {
+        "properties": {
+          "algo_id": {
+            "type": "string",
+            "title": "Algo Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State"
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "long",
+                  "short",
+                  "flat"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direction"
+          },
+          "algo_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Algo Type"
+          },
+          "run_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Type"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "investment_usdt": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Investment Usdt"
+          },
+          "configured_leverage": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Configured Leverage"
+          },
+          "actual_leverage": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actual Leverage"
+          },
+          "liquidation_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Liquidation Price"
+          },
+          "grid_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Count"
+          },
+          "lower_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lower Price"
+          },
+          "upper_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Upper Price"
+          },
+          "grid_spacing": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Spacing"
+          },
+          "grid_profit": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grid Profit"
+          },
+          "floating_profit": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Floating Profit"
+          },
+          "total_fee": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Fee"
+          },
+          "funding_fee": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Funding Fee"
+          },
+          "total_pnl": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Pnl"
+          },
+          "pnl_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pnl Ratio"
+          },
+          "stop_loss_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Loss Price"
+          },
+          "take_profit_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Take Profit Price"
+          },
+          "use_base_position": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Use Base Position"
+          }
+        },
+        "type": "object",
+        "required": [
+          "algo_id",
+          "name"
+        ],
+        "title": "LiveRobotOverview"
+      },
+      "LiveSnapshotRequest": {
+        "properties": {
+          "exchange": {
+            "$ref": "#/components/schemas/LiveExchange"
+          },
+          "symbol": {
+            "type": "string",
+            "minLength": 2,
+            "title": "Symbol"
+          },
+          "strategy_started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Strategy Started At"
+          },
+          "algo_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Algo Id"
+          },
+          "monitoring_poll_interval_sec": {
+            "type": "integer",
+            "maximum": 60.0,
+            "minimum": 5.0,
+            "title": "Monitoring Poll Interval Sec",
+            "default": 15
+          },
+          "monitoring_scope": {
+            "type": "string",
+            "enum": [
+              "running",
+              "recent"
+            ],
+            "title": "Monitoring Scope",
+            "default": "running"
+          },
+          "credentials": {
+            "$ref": "#/components/schemas/LiveCredentials"
+          }
+        },
+        "type": "object",
+        "required": [
+          "exchange",
+          "symbol",
+          "strategy_started_at",
+          "credentials"
+        ],
+        "title": "LiveSnapshotRequest"
+      },
+      "LiveSnapshotResponse": {
+        "properties": {
+          "account": {
+            "$ref": "#/components/schemas/LiveAccountInfo"
+          },
+          "robot": {
+            "$ref": "#/components/schemas/LiveRobotOverview"
+          },
+          "monitoring": {
+            "$ref": "#/components/schemas/LiveMonitoringInfo"
+          },
+          "market_params": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MarketParamsResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "summary": {
+            "$ref": "#/components/schemas/LiveSnapshotSummary"
+          },
+          "window": {
+            "$ref": "#/components/schemas/LiveWindowInfo"
+          },
+          "completeness": {
+            "$ref": "#/components/schemas/LiveCompleteness"
+          },
+          "ledger_summary": {
+            "$ref": "#/components/schemas/LiveLedgerSummary"
+          },
+          "position": {
+            "$ref": "#/components/schemas/LivePosition"
+          },
+          "open_orders": {
+            "items": {
+              "$ref": "#/components/schemas/LiveOpenOrder"
+            },
+            "type": "array",
+            "title": "Open Orders"
+          },
+          "fills": {
+            "items": {
+              "$ref": "#/components/schemas/LiveFill"
+            },
+            "type": "array",
+            "title": "Fills"
+          },
+          "funding_entries": {
+            "items": {
+              "$ref": "#/components/schemas/LiveFundingEntry"
+            },
+            "type": "array",
+            "title": "Funding Entries"
+          },
+          "pnl_curve": {
+            "items": {
+              "$ref": "#/components/schemas/CurvePoint"
+            },
+            "type": "array",
+            "title": "Pnl Curve"
+          },
+          "daily_breakdown": {
+            "items": {
+              "$ref": "#/components/schemas/LiveDailyBreakdown"
+            },
+            "type": "array",
+            "title": "Daily Breakdown"
+          },
+          "ledger_entries": {
+            "items": {
+              "$ref": "#/components/schemas/LiveLedgerEntry"
+            },
+            "type": "array",
+            "title": "Ledger Entries"
+          },
+          "inferred_grid": {
+            "$ref": "#/components/schemas/LiveInferredGrid"
+          },
+          "diagnostics": {
+            "items": {
+              "$ref": "#/components/schemas/LiveDiagnostic"
+            },
+            "type": "array",
+            "title": "Diagnostics"
+          }
+        },
+        "type": "object",
+        "required": [
+          "account",
+          "robot",
+          "monitoring",
+          "summary",
+          "window",
+          "completeness",
+          "ledger_summary",
+          "position",
+          "inferred_grid"
+        ],
+        "title": "LiveSnapshotResponse"
+      },
+      "LiveSnapshotSummary": {
+        "properties": {
+          "realized_pnl": {
+            "type": "number",
+            "title": "Realized Pnl"
+          },
+          "unrealized_pnl": {
+            "type": "number",
+            "title": "Unrealized Pnl"
+          },
+          "fees_paid": {
+            "type": "number",
+            "title": "Fees Paid"
+          },
+          "funding_paid": {
+            "type": "number",
+            "title": "Funding Paid"
+          },
+          "funding_net": {
+            "type": "number",
+            "title": "Funding Net"
+          },
+          "total_pnl": {
+            "type": "number",
+            "title": "Total Pnl"
+          },
+          "position_notional": {
+            "type": "number",
+            "title": "Position Notional"
+          },
+          "open_order_count": {
+            "type": "integer",
+            "title": "Open Order Count"
+          },
+          "fill_count": {
+            "type": "integer",
+            "title": "Fill Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "realized_pnl",
+          "unrealized_pnl",
+          "fees_paid",
+          "funding_paid",
+          "funding_net",
+          "total_pnl",
+          "position_notional",
+          "open_order_count",
+          "fill_count"
+        ],
+        "title": "LiveSnapshotSummary"
+      },
+      "LiveWindowInfo": {
+        "properties": {
+          "strategy_started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Strategy Started At"
+          },
+          "fetched_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Fetched At"
+          },
+          "compared_end_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Compared End At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "strategy_started_at",
+          "fetched_at",
+          "compared_end_at"
+        ],
+        "title": "LiveWindowInfo"
+      },
       "MarketParamsResponse": {
         "properties": {
           "source": {
@@ -1847,6 +3634,17 @@
           "min_notional": {
             "type": "number",
             "title": "Min Notional"
+          },
+          "reference_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Price"
           },
           "fetched_at": {
             "type": "string",

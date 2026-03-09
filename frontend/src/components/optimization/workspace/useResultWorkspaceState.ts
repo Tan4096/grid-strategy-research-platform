@@ -6,7 +6,7 @@ import {
   OptimizationResultsColumnKey
 } from "../../OptimizationResultsTable";
 import { useIsMobile } from "../../../hooks/responsive/useIsMobile";
-import { OptimizationRow } from "../../../types";
+import type { OptimizationRow } from "../../../lib/api-schema";
 
 export type OptimizationResultTab = "table" | "heatmap" | "curves" | "robustness";
 export type TableViewMode = "table" | "cards";

@@ -1,4 +1,4 @@
-import { CurvePoint } from "../types";
+import type { CurvePoint } from "../lib/api-schema";
 
 export const POSITIVE_CURVE_COLOR = "#22c55e";
 export const NEGATIVE_CURVE_COLOR = "#ef4444";

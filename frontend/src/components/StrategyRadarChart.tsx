@@ -2,7 +2,7 @@ import ReactEChartsCore from "echarts-for-react/lib/core";
 import { useEffect, useRef, useState } from "react";
 import { useLayoutCardHeight } from "../hooks/useLayoutCardHeight";
 import { echarts, type RadarChartOption } from "../lib/echarts-radar";
-import { StrategyScoring } from "../types";
+import type { StrategyScoring } from "../lib/api-schema";
 
 interface Props {
   scoring: StrategyScoring;

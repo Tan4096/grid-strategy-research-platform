@@ -3,7 +3,8 @@ import type { ReactNode } from "react";
 import { createRoot, Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { STORAGE_KEYS } from "../lib/storage";
-import type { LiveConnectionDraft, LiveRobotListItem } from "../types";
+import type { LiveConnectionDraft } from "../types";
+import type { LiveRobotListItem } from "../lib/api-schema";
 import LiveConnectionPanel from "./LiveConnectionPanel";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -121,7 +122,6 @@ describe("LiveConnectionPanel", () => {
     expect(text).toContain("API Key");
     expect(text).toContain("监测对象 (algoId)");
     expect(text).toContain("请选择机器人");
-    expect(text).toContain("完整 algoId：algo-123");
 
     const editButton = Array.from(mounted.container.querySelectorAll("button")).find((node) => node.textContent?.includes("收起凭证"));
     expect(editButton).not.toBeNull();
@@ -180,6 +180,7 @@ describe("LiveConnectionPanel", () => {
     expect(select).toBeTruthy();
     expect(select?.textContent ?? "").not.toContain("ETH Grid");
     expect(select?.textContent ?? "").toContain("BTCUSDT · 做空");
+    expect(mounted.container.textContent ?? "").toContain("刷新列表");
     act(() => {
       if (select) {
         select.value = 'algo-456';

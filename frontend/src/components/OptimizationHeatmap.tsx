@@ -2,7 +2,7 @@ import ReactEChartsCore from "echarts-for-react/lib/core";
 import { useEffect, useRef, useState } from "react";
 import { useLayoutCardHeight } from "../hooks/useLayoutCardHeight";
 import { echarts, type HeatmapChartOption } from "../lib/echarts-heatmap";
-import { OptimizationHeatmapCell } from "../types";
+import type { OptimizationHeatmapCell } from "../lib/api-schema";
 
 interface Props {
   data: OptimizationHeatmapCell[];

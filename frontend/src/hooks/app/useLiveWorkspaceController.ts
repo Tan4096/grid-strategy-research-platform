@@ -1,15 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { buildLiveAlignedBacktestRequest } from "../../lib/liveBacktestAlignment";
-import {
-  AppWorkspaceMode,
-  BacktestRequest,
-  LiveConnectionDraft,
-  LiveExchange,
-  LiveMonitoringPreference,
-  MobilePrimaryTab,
-  ParameterMode
-} from "../../types";
+import type { AppWorkspaceMode, LiveConnectionDraft, LiveMonitoringPreference, MobilePrimaryTab, ParameterMode } from "../../types";
+import type { BacktestRequest, LiveExchange } from "../../lib/api-schema";
 import { useLiveRobotList } from "../useLiveRobotList";
 import { useLiveTradingSync } from "../useLiveTradingSync";
 import type { EmitOperationEventInput } from "../useOperationFeedback";
@@ -100,11 +93,6 @@ export function useLiveWorkspaceController({
   const liveEnvironmentStartTime = request.data.start_time ?? null;
   const liveCredentialProfile = liveConnectionDraft.profiles.okx;
   const liveAlgoId = liveConnectionDraft.algo_id.trim();
-  const liveCredentialsReady = Boolean(
-    liveCredentialProfile.api_key.trim() &&
-      liveCredentialProfile.api_secret.trim() &&
-      (liveCredentialProfile.passphrase ?? "").trim()
-  );
   const liveMonitoringPreferenceKey = useMemo(
     () => [liveEnvironmentExchange ?? "", liveEnvironmentSymbol].join("|"),
     [liveEnvironmentExchange, liveEnvironmentSymbol]
@@ -168,6 +156,15 @@ export function useLiveWorkspaceController({
   });
 
   const selectedLiveRobot = liveRobotItems.find((item) => item.algo_id === liveAlgoId) ?? null;
+  const currentSymbolRobotItems = useMemo(() => {
+    const normalizedSymbol = liveEnvironmentSymbol.trim().toUpperCase();
+    if (!normalizedSymbol) {
+      return liveRobotItems;
+    }
+    const matched = liveRobotItems.filter((item) => item.symbol.trim().toUpperCase() === normalizedSymbol);
+    return matched.length > 0 ? matched : liveRobotItems;
+  }, [liveEnvironmentSymbol, liveRobotItems]);
+
   const liveSelectedRobotMissing = Boolean(
     liveAlgoId && !selectedLiveRobot && !liveRobotListLoading
   );
@@ -238,8 +235,34 @@ export function useLiveWorkspaceController({
             }
           : prev
       );
+      return;
     }
-  }, [liveAlgoId, liveRobotItems, liveRobotListLoading, setLiveConnectionDraft]);
+
+    if (liveAlgoId || !liveEnvironmentSymbol || currentSymbolRobotItems.length !== 1) {
+      return;
+    }
+
+    const onlyRobot = currentSymbolRobotItems[0];
+    if (!onlyRobot) {
+      return;
+    }
+
+    setLiveConnectionDraft((prev) =>
+      prev.algo_id === onlyRobot.algo_id
+        ? prev
+        : {
+            ...prev,
+            algo_id: onlyRobot.algo_id
+          }
+    );
+  }, [
+    currentSymbolRobotItems,
+    liveAlgoId,
+    liveEnvironmentSymbol,
+    liveRobotItems,
+    liveRobotListLoading,
+    setLiveConnectionDraft
+  ]);
 
   const liveRunBlockedReason = useMemo(() => {
     if (!liveEnvironmentExchange) {
@@ -275,7 +298,9 @@ export function useLiveWorkspaceController({
         : "当前 OKX 凭证下未找到运行中的网格机器人。";
     }
     if (!liveAlgoId) {
-      return "请选择一个 OKX 机器人（algoId）后再开始监测。";
+      return currentSymbolRobotItems.length > 1
+        ? "当前交易对有多个机器人，请先选择一个 OKX 机器人（algoId）后再开始监测。"
+        : "请选择一个 OKX 机器人（algoId）后再开始监测。";
     }
     if (!selectedLiveRobot) {
       return "当前选择的监测对象已不在最新列表中，请切到最近 7 天或重新选择。";
@@ -287,6 +312,7 @@ export function useLiveWorkspaceController({
     liveEnvironmentExchange,
     liveEnvironmentStartTime,
     liveEnvironmentSymbol,
+    currentSymbolRobotItems.length,
     liveMonitoringPreference.selected_scope,
     liveRobotItems,
     liveRobotListError,

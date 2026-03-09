@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { BacktestResponse, CurvePoint } from "../types";
+import type { BacktestResponse, CurvePoint } from "../lib/api-schema";
 import { buildOpenPositionsCurve, buildReturnRateCurve } from "../lib/backtestCurveTransforms";
 import ComparisonLineChart from "./ComparisonLineChart";
 

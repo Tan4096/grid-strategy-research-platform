@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { STORAGE_KEYS } from "../../lib/storage";
-import { MobileOptimizeLandingView, OptimizationStatusResponse } from "../../types";
+import type { MobileOptimizeLandingView } from "../../types";
+import type { OptimizationStatusResponse } from "../../lib/api-schema";
 
 function normalizeMobileOptimizeLandingView(value: unknown): MobileOptimizeLandingView | null {
   if (value === "runtime" || value === "results") {

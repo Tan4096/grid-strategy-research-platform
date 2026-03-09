@@ -6,7 +6,7 @@ import {
   STRATEGY_TEMP_TEMPLATE_ID
 } from "../../lib/exampleTemplateResolver";
 import { STORAGE_KEYS, writePlain } from "../../lib/storage";
-import { BacktestRequest } from "../../types";
+import type { BacktestRequest } from "../../lib/api-schema";
 
 function cloneRequest(request: BacktestRequest): BacktestRequest {
   return {

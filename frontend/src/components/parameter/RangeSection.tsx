@@ -1,4 +1,4 @@
-import { BacktestRequest, GridSide, Interval, StrategyConfig } from "../../types";
+import type { BacktestRequest, GridSide, Interval, StrategyConfig } from "../../lib/api-schema";
 import {
   INTERVAL_OPTIONS,
   RANGE_FIELDS,

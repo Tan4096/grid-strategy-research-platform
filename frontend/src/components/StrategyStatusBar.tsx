@@ -1,4 +1,4 @@
-import { StrategyAnalysis, StrategyScoring } from "../types";
+import type { StrategyAnalysis, StrategyScoring } from "../lib/api-schema";
 import RiskLevelBadge from "./RiskLevelBadge";
 
 interface Props {

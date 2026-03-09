@@ -1,4 +1,4 @@
-import { AnchorMode } from "../types";
+import type { AnchorMode } from "../lib/api-schema";
 
 export type ThemePreset = "cyan" | "blue" | "emerald" | "amber" | "rose" | "custom";
 export type BackgroundPreset = "deep" | "slate" | "graphite" | "paper" | "custom";

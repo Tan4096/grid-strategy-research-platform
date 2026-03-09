@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { TouchEvent } from "react";
-import { OperationEvent } from "../../types";
+import type { OperationEvent } from "../../lib/operation-models";
 import { STORAGE_KEYS } from "../../lib/storage";
 
 interface Props {

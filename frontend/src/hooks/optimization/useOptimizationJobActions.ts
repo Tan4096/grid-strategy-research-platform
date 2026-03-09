@@ -17,13 +17,7 @@ import {
   startOptimization
 } from "../../lib/api";
 import { persistLastRunOptimizationTemplate } from "../../lib/exampleTemplateResolver";
-import {
-  BacktestRequest,
-  OptimizationConfig,
-  OptimizationRequest,
-  OptimizationStatusResponse,
-  SortOrder
-} from "../../types";
+import type { BacktestRequest, OptimizationConfig, OptimizationRequest, OptimizationStatusResponse, SortOrder } from "../../lib/api-schema";
 import { NOTICE_ADVICE, buildJobLabel, buildNoticeDetail } from "../../lib/notificationCopy";
 import type { EmitOperationEventInput } from "../useOperationFeedback";
 

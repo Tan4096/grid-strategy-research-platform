@@ -1,10 +1,6 @@
 import type { ReactNode } from "react";
-import type {
-  BacktestRequest,
-  BacktestResponse,
-  LiveMonitoringTrendPoint,
-  LiveSnapshotResponse
-} from "../types";
+import type { LiveMonitoringTrendPoint } from "../types";
+import type { BacktestRequest, BacktestResponse, LiveSnapshotResponse } from "../lib/api-schema";
 import { useLiveTradingViewModel } from "../hooks/live/useLiveTradingViewModel";
 import LiveLedgerSection from "./live-trading/LiveLedgerSection";
 import LiveOverviewSection from "./live-trading/LiveOverviewSection";

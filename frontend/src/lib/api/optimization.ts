@@ -1,20 +1,14 @@
+import type { OptimizationHeatmapResponse, OptimizationHistoryPageResponse, OptimizationJobStatus, OptimizationProgressResponse, OptimizationRowsResponse, OptimizationRequest, OptimizationStartResponse, OptimizationStatusResponse, SortOrder } from "../../lib/api-schema";
+import type { OptimizationHistoryClearResult, OptimizationHistoryFailedItem, OptimizationHistoryRestoreResult } from "../../lib/operation-models";
 import {
-  OptimizationHeatmapResponse,
-  OptimizationHistoryClearResult,
-  OptimizationHistoryFailedItem,
-  OptimizationHistoryRestoreResult,
-  OptimizationHistoryPageResponse,
-  OptimizationJobStatus,
-  OptimizationProgressResponse,
-  OptimizationRowsResponse,
-  OptimizationRequest,
-  OptimizationStartResponse,
-  OptimizationStatusResponse,
-  SortOrder
-} from "../../types";
-import {
+  ApiOptimizationHeatmapResponse,
+  ApiOptimizationHistoryPageResponse,
+  ApiOptimizationProgressResponse,
+  ApiOptimizationRestartResponse,
+  ApiOptimizationRowsResponse,
   ApiOptimizationStartRequest,
   ApiOptimizationStartResponse,
+  ApiOptimizationStatusResponse,
   normalizeJobIds,
   normalizeOptimizationHistoryClearResponse,
   normalizeOptimizationStartResponse
@@ -70,11 +64,12 @@ export async function fetchOptimizationStatus(
     sort_by: sortBy,
     sort_order: sortOrder
   });
-  return requestJson<OptimizationStatusResponse>(
+  const response = await requestJson<ApiOptimizationStatusResponse>(
     `/api/v1/optimization/${jobId}?${query.toString()}`,
     { method: "GET" },
     { ...options, retries: options?.retries ?? 2 }
   );
+  return response as OptimizationStatusResponse;
 }
 
 export async function fetchOptimizationRows(
@@ -91,33 +86,36 @@ export async function fetchOptimizationRows(
     sort_by: sortBy,
     sort_order: sortOrder
   });
-  return requestJson<OptimizationRowsResponse>(
+  const response = await requestJson<ApiOptimizationRowsResponse>(
     `/api/v1/optimization/${jobId}/rows?${query.toString()}`,
     { method: "GET" },
     { ...options, retries: options?.retries ?? 2 }
   );
+  return response as OptimizationRowsResponse;
 }
 
 export async function fetchOptimizationHeatmap(
   jobId: string,
   options?: RequestOptions
 ): Promise<OptimizationHeatmapResponse> {
-  return requestJson<OptimizationHeatmapResponse>(
+  const response = await requestJson<ApiOptimizationHeatmapResponse>(
     `/api/v1/optimization/${jobId}/heatmap`,
     { method: "GET" },
     { ...options, retries: options?.retries ?? 1 }
   );
+  return response as OptimizationHeatmapResponse;
 }
 
 export async function fetchOptimizationProgress(
   jobId: string,
   options?: RequestOptions
 ): Promise<OptimizationProgressResponse> {
-  return requestJson<OptimizationProgressResponse>(
+  const response = await requestJson<ApiOptimizationProgressResponse>(
     `/api/v1/optimization/${jobId}/progress`,
     { method: "GET" },
     { ...options, retries: options?.retries ?? 2 }
   );
+  return response as OptimizationProgressResponse;
 }
 
 export async function exportOptimizationCsv(
@@ -137,11 +135,12 @@ export async function restartOptimization(
   jobId: string,
   options?: RequestOptions
 ): Promise<OptimizationStartResponse> {
-  return requestJson<OptimizationStartResponse>(
+  const response = await requestJson<ApiOptimizationRestartResponse>(
     `/api/v1/optimization/${jobId}/restart`,
     { method: "POST" },
     options
   );
+  return response as OptimizationStartResponse;
 }
 
 export async function fetchOptimizationHistory(
@@ -159,11 +158,12 @@ export async function fetchOptimizationHistory(
   if (status) {
     query.set("status", status);
   }
-  return requestJson<OptimizationHistoryPageResponse>(
+  const response = await requestJson<ApiOptimizationHistoryPageResponse>(
     `/api/v1/optimization-history?${query.toString()}`,
     { method: "GET" },
     options
   );
+  return response as OptimizationHistoryPageResponse;
 }
 
 export async function clearOptimizationHistory(

@@ -1,11 +1,6 @@
 import { useMemo, useState } from "react";
-import {
-  AnchorMode,
-  BacktestRequest,
-  MobileTemplateSheetMode,
-  MobileParameterWizardStep,
-  OptimizationConfig
-} from "../types";
+import type { MobileTemplateSheetMode, MobileParameterWizardStep } from "../types";
+import type { AnchorMode, BacktestRequest, OptimizationConfig } from "../lib/api-schema";
 import OptimizationTemplateSection from "./parameter/OptimizationTemplateSection";
 import MobileBlockedReasonSheet from "./parameter/MobileBlockedReasonSheet";
 import MobileTemplateSheet from "./parameter/MobileTemplateSheet";

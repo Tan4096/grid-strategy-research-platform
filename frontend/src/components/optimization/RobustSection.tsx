@@ -1,4 +1,4 @@
-import { OptimizationConfig } from "../../types";
+import type { OptimizationConfig } from "../../lib/api-schema";
 import { inputClass, labelClass, numberOrNull, SectionCard } from "./shared";
 
 interface Props {

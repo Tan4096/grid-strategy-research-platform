@@ -2,7 +2,7 @@ import { act } from "react";
 import type { ReactNode } from "react";
 import { createRoot, Root } from "react-dom/client";
 import { describe, expect, it } from "vitest";
-import type { BacktestRequest, LiveSnapshotResponse } from "../types";
+import type { BacktestRequest, LiveSnapshotResponse } from "../lib/api-schema";
 import LiveTradingPanel from "./LiveTradingPanel";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
