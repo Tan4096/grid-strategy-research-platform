@@ -1,0 +1,18 @@
+[Unit]
+Description=Crypto Grid Backtest Frontend
+After=network.target
+
+[Service]
+Type=simple
+User=CHANGE_ME
+Group=CHANGE_ME
+WorkingDirectory=/opt/crypto-grid/frontend
+EnvironmentFile=/opt/crypto-grid/.env
+ExecStart=/usr/bin/env sh -lc 'npm run preview -- --host 0.0.0.0 --port ${FRONTEND_PORT}'
+Restart=always
+RestartSec=3
+KillSignal=SIGINT
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

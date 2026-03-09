@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-label="Crypto Grid Research Web overview">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#111827"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#22c55e"/>
+      <stop offset="100%" stop-color="#06b6d4"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="720" fill="url(#bg)" rx="24"/>
+  <text x="72" y="96" fill="#f8fafc" font-size="42" font-family="Arial, Helvetica, sans-serif" font-weight="700">Crypto Grid Research Web</text>
+  <text x="72" y="136" fill="#94a3b8" font-size="22" font-family="Arial, Helvetica, sans-serif">Backtest · Optimization · Live Monitoring · Deployment Templates</text>
+  <rect x="72" y="176" width="1136" height="4" fill="url(#accent)" rx="2"/>
+
+  <g transform="translate(72,220)">
+    <rect width="330" height="180" rx="20" fill="#111827" stroke="#334155"/>
+    <text x="28" y="42" fill="#e2e8f0" font-size="28" font-family="Arial, Helvetica, sans-serif" font-weight="700">Backtest</text>
+    <text x="28" y="78" fill="#94a3b8" font-size="18" font-family="Arial, Helvetica, sans-serif">Candle-by-candle perpetual grid simulation</text>
+    <text x="28" y="112" fill="#cbd5e1" font-size="18" font-family="Arial, Helvetica, sans-serif">• fees / funding / liquidation</text>
+    <text x="28" y="140" fill="#cbd5e1" font-size="18" font-family="Arial, Helvetica, sans-serif">• equity / drawdown / event timeline</text>
+    <text x="28" y="168" fill="#cbd5e1" font-size="18" font-family="Arial, Helvetica, sans-serif">• CSV and exchange data sources</text>
+  </g>
+
+  <g transform="translate(475,220)">
+    <rect width="330" height="180" rx="20" fill="#111827" stroke="#334155"/>
+    <text x="28" y="42" fill="#e2e8f0" font-size="28" font-family="Arial, Helvetica, sans-serif" font-weight="700">Optimization</text>
+    <text x="28" y="78" fill="#94a3b8" font-size="18" font-family="Arial, Helvetica, sans-serif">Grid / Bayesian / Random-pruned search</text>
+    <text x="28" y="112" fill="#cbd5e1" font-size="18" font-family="Arial, Helvetica, sans-serif">• async jobs and history review</text>
+    <text x="28" y="140" fill="#cbd5e1" font-size="18" font-family="Arial, Helvetica, sans-serif">• heatmap / export / retry flow</text>
+    <text x="28" y="168" fill="#cbd5e1" font-size="18" font-family="Arial, Helvetica, sans-serif">• one-click apply back to backtest</text>
+  </g>
+
+  <g transform="translate(878,220)">
+    <rect width="330" height="180" rx="20" fill="#111827" stroke="#334155"/>
+    <text x="28" y="42" fill="#e2e8f0" font-size="28" font-family="Arial, Helvetica, sans-serif" font-weight="700">Live Monitoring</text>
+    <text x="28" y="78" fill="#94a3b8" font-size="18" font-family="Arial, Helvetica, sans-serif">OKX-focused robot snapshot workflow</text>
+    <text x="28" y="112" fill="#cbd5e1" font-size="18" font-family="Arial, Helvetica, sans-serif">• position / fills / funding / diagnostics</text>
+    <text x="28" y="140" fill="#cbd5e1" font-size="18" font-family="Arial, Helvetica, sans-serif">• inferred grid and trend analysis</text>
+    <text x="28" y="168" fill="#cbd5e1" font-size="18" font-family="Arial, Helvetica, sans-serif">• explicit opt-in credential persistence</text>
+  </g>
+
+  <g transform="translate(72,452)">
+    <rect width="1136" height="180" rx="20" fill="#0b1220" stroke="#334155"/>
+    <text x="28" y="44" fill="#e2e8f0" font-size="28" font-family="Arial, Helvetica, sans-serif" font-weight="700">Open-source first release checklist</text>
+    <text x="28" y="86" fill="#cbd5e1" font-size="20" font-family="Arial, Helvetica, sans-serif">MIT · bilingual docs · CI gates · hygiene checks · safer deployment defaults</text>
+    <text x="28" y="122" fill="#94a3b8" font-size="18" font-family="Arial, Helvetica, sans-serif">Commands: make backend-test · make frontend-test · make frontend-build · make oss-check</text>
+    <text x="28" y="154" fill="#94a3b8" font-size="18" font-family="Arial, Helvetica, sans-serif">Docs: root README for users, backend/frontend README for contributors, deploy guide for operators</text>
+  </g>
+</svg>

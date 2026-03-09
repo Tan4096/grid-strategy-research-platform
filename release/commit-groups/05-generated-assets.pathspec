@@ -1,0 +1,6 @@
+docs/assets/readme-backtest-overview.png
+docs/assets/readme-live-monitoring.png
+docs/assets/readme-optimization-heatmap.png
+docs/assets/readme-optimization-results.png
+frontend/openapi.json
+frontend/src/lib/api.generated.ts

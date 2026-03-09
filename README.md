@@ -1,227 +1,203 @@
-# Crypto永续网格回测工具
+# Crypto Grid Research Web
 
-一个可本地运行的 Crypto 永续合约网格研究平台，包含：
-- 回测引擎（逐 K 线仿真）
-- 风险与收益可视化
-- 参数优化（Grid Search + 并行）
-- 实盘参数回填（优化结果一键应用回测）
+中文：面向永续合约网格策略研究的全功能 Web 工具，覆盖回测、参数优化、结构诊断、结果导出与实盘监测。  
+English: A full-featured web app for perpetual futures grid strategy research, covering backtesting, optimization, diagnostics, exports, and live monitoring.
 
-## 1. 当前能力概览
+> This project is for research and validation workflows. It is **not** investment advice, trade execution software, or a guarantee of profitability.
 
-### 回测模块
-- 支持 `LONG / SHORT` 网格
-- 支持杠杆、手续费、滑点、止损、止损后重开
-- 支持“开底仓”（交易所节点制初始化逻辑）
-- 逐 K 线执行，按 high/low 判断触发
-- 强平模拟、保证金风险率、预估强平价格
-- 支持实盘约束参数：
-  - Maker/Taker 分离手续费
-  - 资金费率模拟（按周期累计）
-  - 价格最小变动、数量最小步长、最小名义金额
-  - 可选按标记价进行强平判定
-- 输出完整统计：
-  - 总收益、年化（数据跨度足够时）
-  - 胜率、最大回撤、最大单次亏损、平均持仓时间等
-- 图表：
-  - K 线 + 网格区间
-  - Equity 曲线
-  - 回撤曲线
-  - 保证金风险相关曲线
-  - 事件时间线（open/close/stop/funding/liquidation）
+![Project overview](docs/assets/github-overview.svg)
 
-### 参数优化模块
-- Grid Search 扫描维度：
-  - 杠杆
-  - 网格数
-  - 区间宽度（百分比）
-  - 止损比例（百分比）
-  - 可选：`use_base_position` 作为优化维度
-- Anchor 模式：
-  - `BACKTEST_START_PRICE`
-  - `BACKTEST_AVG_PRICE`
-  - `CURRENT_PRICE`
-  - `CUSTOM_PRICE`
-- 输出具体价格参数：
-  - `lower_price / upper_price / stop_price / anchor_price`
-- 优化目标：
-  - 总收益 / 夏普 / 最小回撤 / 收益回撤比 / 自定义评分函数
-- 约束与稳健性：
-  - 止损与潜在强平边界的硬约束
-  - Walk-forward（训练/验证）
-  - 最小交易数、回撤约束、正收益约束
-- 结果：
-  - 排序表 + 分页 + CSV 导出
-  - 表格/卡片双视图 + 核心/诊断列预设
-  - 热力图
-  - 最优参数收益曲线
-  - 一键应用到回测模块
-  - 优化历史中心（加载历史 / 重启任务 / 双任务对比）
+## Overview / 项目简介
 
-### 性能与体验
-- 优化执行为多进程并行 + 批处理
-- 支持大规模组合（`max_combinations` 最高可到 `200000`）
-- 计算资源三档模式：
-  - `极速`
-  - `均衡`
-  - `省电`
-- 前端自动记住并恢复你上次输入：
-  - 回测参数
-  - 参数优化配置
-  - 注意：CSV 文件内容不会持久化（仅保留配置，不缓存大文件）
-- 支持命名策略模板：
-  - 保存多个模板
-  - 一键应用
-  - 导入/导出 JSON
-- 优化轮询支持可见性退避（前台高频、后台低频）+ ETA 估算 + 完成通知
-- 新手 3 步引导卡片（首次打开可见，可关闭）
+This repository is designed for self-hosted strategy research:
 
-## 2. 技术栈
+- **Backtest / 回测**: candle-by-candle perpetual futures grid simulation
+- **Optimization / 优化**: grid, bayesian, and random-pruned search modes
+- **Diagnostics / 诊断**: structure analysis, scoring, and risk-focused review
+- **Live Monitoring / 实盘监测**: optional OKX-focused monitoring and reconciliation views
+- **Deployment Templates / 部署模板**: Docker Compose and systemd examples
 
-- 后端：FastAPI + Pydantic + NumPy + Pandas
-- 前端：React + TypeScript + Vite + Tailwind + ECharts
-- 数据源：Binance / Bybit / OKX / 用户 CSV
-- 交易对：BTCUSDT / ETHUSDT / SOLUSDT / HYPEUSDT（默认 BTCUSDT）
+The project keeps the current public API stable and focuses on practical local or internal research workflows.
 
-## 3. 目录结构
+## Highlights / 核心能力
+
+### Backtest / 回测
+- Binance / Bybit / OKX / CSV data sources
+- Long / short grid simulation with fees, slippage, funding, stop-loss, liquidation, and optional base position
+- Equity, drawdown, leverage usage, liquidation price, event timeline, and trade table views
+
+### Optimization / 参数优化
+- `grid`, `bayesian`, `random_pruned`
+- Search dimensions for leverage, grids, band width, stop-loss ratio, and optional base-position behavior
+- Async jobs, history, retry/restore flow, heatmap, export, and one-click apply-to-backtest
+
+### Live Monitoring / 实盘监测
+- Current focus: OKX robot snapshot / monitoring workflow
+- Position, open orders, fills, funding, inferred grid, diagnostics, and trend visualization
+- Safer browser behavior: credentials should only persist when the user explicitly opts in
+
+## Screenshots / 界面预览
+
+All screenshots below are generated from masked demo data for public documentation.  
+以下截图均基于脱敏演示数据生成，仅用于公开仓库展示。
+
+To regenerate the gallery assets locally:
+`cd frontend && npm run capture:readme-screenshots`
+
+| 参数配置 + 回测总览 | 参数优化结果 |
+| --- | --- |
+| ![Backtest overview](docs/assets/readme-backtest-overview.png) | ![Optimization results](docs/assets/readme-optimization-results.png) |
+| 左侧参数区与右侧回测结果同屏展示，适合快速验证区间、风险和收益曲线。 | 结果表格、最佳组合摘要与核心指标同屏，适合筛选可继续验证的参数组。 |
+
+| 热力图分析 | 实盘监测面板 |
+| --- | --- |
+| ![Optimization heatmap](docs/assets/readme-optimization-heatmap.png) | ![Live monitoring overview](docs/assets/readme-live-monitoring.png) |
+| 通过杠杆 × 网格数热力图快速观察稳健评分分布，定位可重点复核的参数区域。 | 用演示数据展示监测总览、风险配置、收益趋势和账单拆解，不包含真实账户信息。 |
+
+## Architecture / 架构概览
 
 ```text
-btc-grid-backtest/
-  backend/
-    app/
-      api/routes.py
-      services/backtest_engine.py
-      services/data_loader.py
-      optimizer/
-      core/
-      main.py
-    scripts/
-      benchmark_optimizer_perf.py
-    tests/
-    requirements.txt
-  frontend/
-    src/
-      App.tsx
-      components/
-      lib/api.ts
-      types.ts
-    package.json
+frontend (React + Vite + TypeScript)
+  ├─ parameter workspace
+  ├─ backtest workspace
+  ├─ optimization workspace
+  └─ live monitoring workspace
+
+backend (FastAPI)
+  ├─ backtest services
+  ├─ optimization services and job store
+  ├─ live snapshot services and exchange adapters
+  ├─ auth / audit / rate limit / concurrency guards
+  └─ task backends (in-memory / Arq)
 ```
 
-## 4. 本地运行
+Useful developer docs:
 
-### 4.0 一键启动（推荐）
+- Backend: `backend/README.md`
+- Frontend: `frontend/README.md`
+- Deployment: `deploy/README.md`
+- Release checklist: `release/OPEN_SOURCE_RELEASE_CHECKLIST.md`
+
+## Requirements / 环境要求
+
+- Python `3.11` recommended for a setup close to CI and Docker
+- Node.js `20` recommended for frontend build / test parity
+- Redis is optional for local private research mode and required when you enable Arq-backed task/state persistence
+- Chromium is only needed if you run Playwright e2e or regenerate the README screenshots
+
+## Quick Start / 快速开始
+
+### Option A — one command / 一键启动
 
 ```bash
-cd /Users/simon/Desktop/专业学习/Risc-V-CPU/serv-main/btc-grid-backtest
-./start-dev.sh
+make dev
 ```
 
-默认会同时启动：
-- 后端：`http://localhost:8000`
-- 前端：`http://localhost:5173`
+`make dev` bootstraps `backend/.venv` and `frontend/node_modules` when missing, then starts both services locally.  
+`make dev` 会在缺少依赖时自动准备 `backend/.venv` 和 `frontend/node_modules`，随后启动前后端。
 
-可选自定义端口：
+Default URLs:
 
-```bash
-BACKEND_PORT=8001 FRONTEND_PORT=5174 ./start-dev.sh
-```
+- Frontend: `http://localhost:5173`
+- Backend: `http://localhost:8000`
 
-按一次 `Ctrl+C` 会同时停止前后端。
+### Option B — manual setup / 手动启动
 
-### 4.1 启动后端
+Backend:
 
 ```bash
-cd /Users/simon/Desktop/专业学习/Risc-V-CPU/serv-main/btc-grid-backtest/backend
+cd backend
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-后端默认地址：`http://localhost:8000`
-
-### 4.2 启动前端
+Frontend:
 
 ```bash
-cd /Users/simon/Desktop/专业学习/Risc-V-CPU/serv-main/btc-grid-backtest/frontend
-npm install
+cd frontend
+npm ci
 npm run dev
 ```
 
-前端默认地址：`http://localhost:5173`
+## Common Workflows / 常见使用流程
 
-## 5. 时间与周期规则
+1. Fill market / strategy / risk inputs in the parameter panel.
+2. Run a backtest and review metrics, curves, trades, and event timeline.
+3. Start an optimization job and inspect ranked rows, heatmap, and robustness views.
+4. Apply an optimized row back to the backtest panel for confirmation.
+5. If needed, enable live monitoring with your own deployment and credentials.
 
-- 默认时间基准：北京时间 `UTC+8`
-- 支持自定义开始/结束时间，精确到分钟
-- 不填结束时间时，默认使用当前分钟（UTC+8）
-- 周期支持：`1m,3m,5m,15m,30m,1h,2h,4h,6h,8h,12h,1d`
+## Examples / 最小示例
 
-## 6. CSV 数据格式
+Minimal reproducible example files are included under `examples/`:
 
-至少包含（大小写不敏感，支持别名）：
-- `timestamp` / `time` / `datetime` / `date` / `open_time`
-- `open`
-- `high`
-- `low`
-- `close`
-- `volume`（可选）
+- `examples/backtest.request.json`
+- `examples/optimization.request.json`
+- `examples/sample-ohlcv.csv`
 
-`timestamp` 支持：
-- ISO 时间字符串
-- Unix 秒
-- Unix 毫秒
+These examples are meant for local testing and documentation, not as trading recommendations.
 
-## 7. API 概览
+## Tests and Quality Gates / 测试与质量门禁
 
-- `GET /api/v1/health`
-- `GET /api/v1/backtest/defaults`
-- `POST /api/v1/backtest/run`
-- `POST /api/v1/optimization/start`
-- `POST /api/v1/optimization/{job_id}/cancel`
-- `GET /api/v1/optimization/{job_id}/progress`
-- `GET /api/v1/optimization/{job_id}`
-- `GET /api/v1/optimization/{job_id}/export`
-- `GET /api/v1/optimization-history`
-
-## 8.1 生产安全配置
-
-- 后端 CORS 可通过环境变量控制：
-  - `CORS_ALLOW_ORIGINS=http://localhost:5173,http://127.0.0.1:5173`
-- 优化任务记录支持 TTL 与上限清理：
-  - `OPTIMIZATION_JOB_TTL_SECONDS`（默认 86400）
-  - `OPTIMIZATION_MAX_JOB_RECORDS`（默认 200）
-- 优化结果快照持久化（SQLite）：
-  - `OPTIMIZATION_STORE_PATH`（默认 `backend/data/optimization_jobs.sqlite3`）
-  - `OPTIMIZATION_PERSIST_ROWS_LIMIT`（默认 5000）
-
-## 8. 测试与构建
-
-### 后端测试
+Root commands:
 
 ```bash
-cd /Users/simon/Desktop/专业学习/Risc-V-CPU/serv-main/btc-grid-backtest/backend
-source .venv/bin/activate
-pytest -q
+make backend-test
+make frontend-lint
+make frontend-contract
+make frontend-test
+make frontend-build
+make test
+make oss-check
+make review-surface
 ```
 
-### 前端构建
+Direct commands:
 
 ```bash
-cd /Users/simon/Desktop/专业学习/Risc-V-CPU/serv-main/btc-grid-backtest/frontend
-npm run build
+backend/.venv/bin/python -m pytest backend/tests -q
+cd frontend && npm run gen:api-types && git diff --exit-code -- src/lib/api.generated.ts
+cd frontend && npm run lint && npm run test:unit && npm run build
 ```
 
-## 9. 性能基准脚本
+Public release target:
 
-仓库内提供优化模块基准脚本：
+- backend tests green
+- frontend API types regenerated with no drift
+- frontend lint / unit / build green
+- repository hygiene check green
+- README screenshots render correctly on GitHub
+- no secrets, local paths, databases, or build outputs committed
 
-```bash
-cd /Users/simon/Desktop/专业学习/Risc-V-CPU/serv-main/btc-grid-backtest/backend
-PYTHONPATH=. .venv/bin/python scripts/benchmark_optimizer_perf.py
-```
+## Deployment Modes / 部署方式
 
-输出包含：
-- 组合数
-- 总耗时
-- 成功评估数
+### Local research mode / 本地研究模式
+- minimal friction
+- suitable for local validation
+- can run with relaxed auth settings for a private machine
+
+### Public deployment mode / 公网部署模式
+- enable authentication
+- keep rate limiting and audit logging on
+- use persistent state / Redis where required
+- carefully review CORS and secret management
+
+See `deploy/README.md` and `deploy/.env.example` for the deployment templates.
+
+## Open Source Notes / 开源说明
+
+- License: `MIT`
+- Contribution guide: `CONTRIBUTING.md`
+- Security policy: `SECURITY.md`
+- Code of conduct: `CODE_OF_CONDUCT.md`
+
+Suggested GitHub metadata is documented in `release/GITHUB_METADATA.md`.
+
+## Risk Notice / 风险声明
+
+- Historical performance does not imply future returns.
+- Exchange rules, fee schedules, funding behavior, and liquidation logic should always be re-verified before any real-money usage.
+- Live monitoring is an observational workflow, not an execution guarantee.
+- Never commit real API keys, tokens, passphrases, or `.env` values.

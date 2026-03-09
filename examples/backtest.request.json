@@ -1,0 +1,34 @@
+{
+  "strategy": {
+    "side": "long",
+    "lower": 62000,
+    "upper": 70000,
+    "grids": 24,
+    "leverage": 5,
+    "margin": 2000,
+    "stop_loss": 59000,
+    "use_base_position": false,
+    "strict_risk_control": true,
+    "reopen_after_stop": true,
+    "fee_rate": 0.0004,
+    "maker_fee_rate": 0.0002,
+    "taker_fee_rate": 0.0005,
+    "slippage": 0.0002,
+    "maintenance_margin_rate": 0.005,
+    "funding_rate_per_8h": 0.0001,
+    "funding_interval_hours": 8,
+    "use_mark_price_for_liquidation": false,
+    "price_tick_size": 0.1,
+    "quantity_step_size": 0.001,
+    "min_notional": 5,
+    "max_allowed_loss_usdt": 200
+  },
+  "data": {
+    "source": "binance",
+    "symbol": "BTCUSDT",
+    "interval": "1h",
+    "start_time": "2026-02-01T00:00:00+08:00",
+    "end_time": "2026-02-14T00:00:00+08:00",
+    "lookback_days": 14
+  }
+}

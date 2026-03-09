@@ -1,0 +1,13 @@
+backend/app/api/
+backend/app/optimizer/
+backend/app/services/
+backend/tests/test_api_backtest_jobs.py
+backend/tests/test_api_live_snapshot.py
+backend/tests/test_api_optimization_views.py
+backend/tests/test_data_loader_okx.py
+backend/tests/test_e2e_smoke_flow.py
+backend/tests/test_engine.py
+backend/tests/test_job_store.py
+backend/tests/test_live_snapshot_helpers.py
+backend/tests/test_market_params.py
+backend/tests/test_optimizer.py

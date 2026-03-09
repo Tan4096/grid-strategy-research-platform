@@ -11,6 +11,8 @@ __pycache__/
 .ruff_cache/
 .venv/
 venv/
+.venv_codex/
+backend/.venv_codex/
 
 # Node / Frontend
 node_modules/
@@ -21,10 +23,27 @@ dist/
 *.log
 *.pid
 *.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
 backend/data/*.sqlite3
+test-results/
+playwright-report/
 release/*.tar.gz
 release/*.zip
 
 # Editors
 .idea/
 .vscode/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+!deploy/.env.example
+deploy/.env
+backend/.env
+frontend/.env
+frontend/.env.*
+backend/data/
+coverage/
+htmlcov/

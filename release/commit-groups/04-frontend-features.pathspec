@@ -1,0 +1,12 @@
+frontend/.eslintignore
+frontend/.eslintrc.cjs
+frontend/index.html
+frontend/package-lock.json
+frontend/package.json
+frontend/playwright.config.ts
+frontend/scripts/
+frontend/src/
+frontend/tests/
+frontend/vite.config.ts
+frontend/vitest.config.ts
+:(exclude)frontend/src/lib/api.generated.ts

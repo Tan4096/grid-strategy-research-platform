@@ -1,0 +1,101 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "targets": [
+        {
+          "expr": "sum(rate(app_http_requests_total[5m])) by (status)",
+          "legendFormat": "status={{status}}"
+        }
+      ],
+      "title": "HTTP QPS by Status",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "id": 2,
+      "targets": [
+        {
+          "expr": "sum(rate(app_http_request_latency_seconds_sum[5m])) / sum(rate(app_http_request_latency_seconds_count[5m]))",
+          "legendFormat": "avg latency (s)"
+        }
+      ],
+      "title": "HTTP Avg Latency (5m)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "id": 3,
+      "targets": [
+        {
+          "expr": "app_job_queue_depth",
+          "legendFormat": "queue={{queue}}"
+        }
+      ],
+      "title": "Job Queue Depth",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "id": 4,
+      "targets": [
+        {
+          "expr": "sum(rate(app_rate_limited_total[5m])) by (scope)",
+          "legendFormat": "scope={{scope}}"
+        }
+      ],
+      "title": "Rate Limited Requests",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["crypto-grid", "backend"],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "",
+  "title": "Crypto Grid API Overview",
+  "uid": "crypto-grid-api-overview",
+  "version": 1,
+  "weekStart": ""
+}
