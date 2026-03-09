@@ -1,212 +1,224 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
-import ReactEChartsCore from "echarts-for-react/lib/core";
-import { echarts, type CandleChartOption } from "../lib/echarts-candle";
-import { Candle } from "../types";
+import { ComponentType, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLayoutCardHeight } from "../hooks/useLayoutCardHeight";
+import { useIsMobile } from "../hooks/responsive/useIsMobile";
+import { Candle, EventLog } from "../types";
+import { readPlain, STORAGE_KEYS, writePlain } from "../lib/storage";
+import {
+  CHART_GRID_BOTTOM,
+  CHART_GRID_TOP,
+  buildTradeMarkerData,
+  formatChartTimeFull,
+  formatChartTimeShort,
+  formatDuration,
+  formatDurationCompact,
+  formatPrice,
+  resolveChartPalette,
+  rgba
+} from "./price-grid/chartUtils";
+import { buildPriceGridChartOption } from "./price-grid/buildOption";
+import { MarkerGeometry, syncPriceGridChartGeometry } from "./price-grid/syncGeometry";
 
 interface Props {
   candles: Candle[];
   gridLines: number[];
+  events?: EventLog[];
   symbol?: string;
-  marketStructure?: string;
-  gridFitLabel?: string;
 }
 
-const CHART_GRID_TOP = 52;
-const CHART_GRID_BOTTOM = 100;
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
+interface CandleChartRuntime {
+  EChartsComponent: ComponentType<{
+    echarts: unknown;
+    option: Record<string, unknown>;
+    style?: Record<string, unknown>;
+    lazyUpdate?: boolean;
+    onChartReady?: (chart: unknown) => void;
+    onEvents?: Record<string, (payload?: unknown) => void>;
+  }>;
+  echarts: unknown;
 }
 
-function calculateAlignedBodyWidth(categoryWidth: number, dpr: number): number {
-  const safeDpr = Number.isFinite(dpr) && dpr > 0 ? dpr : 1;
-  const cssMin = 1;
-  const cssMax = 64;
-  const widthRatio = categoryWidth >= 24 ? 0.92 : categoryWidth >= 12 ? 0.84 : 0.7;
-  let cssWidth = Math.floor(categoryWidth * widthRatio);
-  cssWidth = clamp(cssWidth, cssMin, cssMax);
-  if (cssWidth > 1 && cssWidth % 2 === 0) {
-    cssWidth -= 1;
-  }
-  const pxWidth = Math.max(1, Math.round(cssWidth * safeDpr));
-  return Number((pxWidth / safeDpr).toFixed(4));
+interface PriceGridLegendSelection {
+  "K线": boolean;
+  "网格线": boolean;
+  "成交标注": boolean;
 }
 
-function formatPrice(value: number): string {
-  if (!Number.isFinite(value)) {
-    return "-";
-  }
-  return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
-}
+const DEFAULT_LEGEND_SELECTION: PriceGridLegendSelection = {
+  "K线": true,
+  "网格线": true,
+  "成交标注": false
+};
 
-function formatPercent(value: number): string {
-  if (!Number.isFinite(value)) {
-    return "-";
-  }
-  const sign = value >= 0 ? "+" : "";
-  return `${sign}${value.toFixed(2)}%`;
-}
-
-function parseOhlc(raw: unknown): [number, number, number, number] | null {
-  if (!Array.isArray(raw)) {
+function normalizeLegendSelection(raw: unknown): PriceGridLegendSelection | null {
+  if (!raw || typeof raw !== "object") {
     return null;
   }
-  const nums = raw.map((item) => Number(item)).filter((item) => Number.isFinite(item));
-  if (nums.length < 4) {
-    return null;
-  }
-  // Compatible with both [open, close, low, high] and [x, open, close, low, high].
-  const base = nums.length >= 5 ? nums.slice(nums.length - 4) : nums.slice(0, 4);
-  const [open, close, low, high] = base;
-  return [open, close, low, high];
-}
-
-function formatDuration(ms: number): string {
-  if (!Number.isFinite(ms) || ms <= 0) {
-    return "0分钟";
-  }
-  const totalMinutes = Math.floor(ms / 60000);
-  const days = Math.floor(totalMinutes / (24 * 60));
-  const hours = Math.floor((totalMinutes % (24 * 60)) / 60);
-  const minutes = totalMinutes % 60;
-  const parts: string[] = [];
-  if (days > 0) {
-    parts.push(`${days}天`);
-  }
-  if (hours > 0 || days > 0) {
-    parts.push(`${hours}小时`);
-  }
-  parts.push(`${minutes}分钟`);
-  return parts.join(" ");
+  const value = raw as Partial<Record<keyof PriceGridLegendSelection, unknown>>;
+  return {
+    "K线": typeof value["K线"] === "boolean" ? value["K线"] : DEFAULT_LEGEND_SELECTION["K线"],
+    "网格线": typeof value["网格线"] === "boolean" ? value["网格线"] : DEFAULT_LEGEND_SELECTION["网格线"],
+    "成交标注":
+      typeof value["成交标注"] === "boolean" ? value["成交标注"] : DEFAULT_LEGEND_SELECTION["成交标注"]
+  };
 }
 
 export default function PriceGridChart({
   candles,
   gridLines,
-  symbol = "价格",
-  marketStructure = "-",
-  gridFitLabel = "-"
+  events = [],
+  symbol = "价格"
 }: Props) {
-  const chartRef = useRef<echarts.EChartsType | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const chartRef = useRef<any>(null);
   const rafRef = useRef<number | null>(null);
   const lastWidthRef = useRef<number>(-1);
+  const lastBarMinWidthRef = useRef<number>(-1);
+  const lastMarkerGeometryRef = useRef<MarkerGeometry | null>(null);
+  const fullRangeMarkerBaselineRef = useRef<MarkerGeometry | null>(null);
+  const pendingMarkerBaselineCaptureRef = useRef<boolean>(false);
+  const lastMarkerLabelVisibleRef = useRef<boolean | null>(null);
+  const lastVisibleCountRef = useRef<number | null>(null);
+  const lastHairlineModeRef = useRef<boolean | null>(null);
   const lastYAxisRef = useRef<{ min: number; max: number } | null>(null);
+  const [runtime, setRuntime] = useState<CandleChartRuntime | null>(null);
+  const [containerWidth, setContainerWidth] = useState<number>(0);
+  const [legendSelected, setLegendSelected] = useState<PriceGridLegendSelection>(
+    () => readPlain(STORAGE_KEYS.priceGridLegendSelection, normalizeLegendSelection) ?? DEFAULT_LEGEND_SELECTION
+  );
+  const showTradeMarkers = legendSelected["成交标注"];
   const candleCount = candles.length;
-  const defaultZoomStart = 0;
-
-  const xData = candles.map((c) => new Date(c.timestamp).toLocaleString());
-  const kData = candles.map((c) => [c.open, c.close, c.low, c.high]);
-  const periodHigh = candles.length > 0 ? Math.max(...candles.map((item) => item.high)) : NaN;
-  const periodLow = candles.length > 0 ? Math.min(...candles.map((item) => item.low)) : NaN;
-  const periodDurationMs =
-    candles.length > 1
-      ? new Date(candles[candles.length - 1].timestamp).getTime() - new Date(candles[0].timestamp).getTime()
-      : 0;
-  const chartKey = `${candleCount}-${candles[0]?.timestamp ?? ""}-${candles[candleCount - 1]?.timestamp ?? ""}`;
-
-  const gridSeries = gridLines.map((line, index) => {
-    const isBoundary = index === 0 || index === gridLines.length - 1;
-    const lineType: "solid" | "dashed" = isBoundary ? "solid" : "dashed";
-    return {
-      name: "网格线",
-      type: "line" as const,
-      data: candles.map(() => Number(line.toFixed(4))),
-      symbol: "none" as const,
-      showSymbol: false,
-      showAllSymbol: false,
-      silent: true,
-      tooltip: { show: false },
-      emphasis: {
-        disabled: true
-      },
-      lineStyle: {
-        color: isBoundary ? "#0ea5e9" : "rgba(148,163,184,0.35)",
-        width: isBoundary ? 1.5 : 1,
-        type: lineType
-      }
-    };
+  const isMobileViewport = useIsMobile();
+  const isMobileChart = containerWidth > 0 ? containerWidth < 760 : isMobileViewport;
+  const isNarrowChart = containerWidth > 0 && containerWidth < 420;
+  const boundaryGridMin = gridLines.length > 0 ? Math.min(...gridLines) : Number.NaN;
+  const boundaryGridMax = gridLines.length > 0 ? Math.max(...gridLines) : Number.NaN;
+  const chartHeight = useLayoutCardHeight(containerRef, {
+    baseHeight: isMobileChart ? 350 : 430,
+    minHeight: isMobileChart ? 210 : 220,
+    maxHeight: 1600,
+    reservedSpacePx: isMobileChart ? 8 : 10
   });
 
-  const syncChartGeometry = useCallback(() => {
-    const chart = chartRef.current;
-    if (!chart || candleCount < 2) {
-      return;
-    }
-    const p0 = Number(chart.convertToPixel({ xAxisIndex: 0 }, 0));
-    const p1 = Number(chart.convertToPixel({ xAxisIndex: 0 }, 1));
-    const categoryWidth = Math.abs(p1 - p0);
-    if (!Number.isFinite(categoryWidth) || categoryWidth <= 0) {
-      return;
-    }
-    const dpr =
-      typeof (chart as unknown as { getDevicePixelRatio?: () => number }).getDevicePixelRatio === "function"
-        ? (chart as unknown as { getDevicePixelRatio: () => number }).getDevicePixelRatio()
-        : window.devicePixelRatio || 1;
-    const nextWidth = calculateAlignedBodyWidth(categoryWidth, dpr);
-    const widthChanged = Math.abs(lastWidthRef.current - nextWidth) >= 1e-4;
-
-    const option = chart.getOption();
-    const firstZoom = Array.isArray(option.dataZoom) ? option.dataZoom[0] : undefined;
-    const rawStart = Number((firstZoom as { start?: unknown } | undefined)?.start ?? 0);
-    const rawEnd = Number((firstZoom as { end?: unknown } | undefined)?.end ?? 100);
-    const startPct = clamp(Number.isFinite(rawStart) ? rawStart : 0, 0, 100);
-    const endPct = clamp(Number.isFinite(rawEnd) ? rawEnd : 100, 0, 100);
-    const leftPct = Math.min(startPct, endPct);
-    const rightPct = Math.max(startPct, endPct);
-    const startIndex = clamp(Math.floor((leftPct / 100) * (candleCount - 1)), 0, candleCount - 1);
-    const endIndex = clamp(Math.ceil((rightPct / 100) * (candleCount - 1)), 0, candleCount - 1);
-
-    let visibleLow = Number.POSITIVE_INFINITY;
-    let visibleHigh = Number.NEGATIVE_INFINITY;
-    for (let i = startIndex; i <= endIndex; i += 1) {
-      const candle = candles[i];
-      if (!candle) {
-        continue;
-      }
-      if (candle.low < visibleLow) {
-        visibleLow = candle.low;
-      }
-      if (candle.high > visibleHigh) {
-        visibleHigh = candle.high;
-      }
-    }
-    if (!Number.isFinite(visibleLow) || !Number.isFinite(visibleHigh)) {
-      return;
-    }
-    const rawSpan = Math.max(visibleHigh - visibleLow, visibleHigh * 0.0001);
-    const pad = rawSpan * 0.08;
-    const axisMin = Number((visibleLow - pad).toFixed(2));
-    const axisMax = Number((visibleHigh + pad).toFixed(2));
-    const prevYAxis = lastYAxisRef.current;
-    const yAxisChanged = !prevYAxis || Math.abs(prevYAxis.min - axisMin) > 1e-6 || Math.abs(prevYAxis.max - axisMax) > 1e-6;
-
-    if (!widthChanged && !yAxisChanged) {
-      return;
-    }
-
-    const partial: {
-      series?: Array<{ id: string; barWidth: number }>;
-      yAxis?: Array<{ min: number; max: number }>;
-    } = {};
-    if (widthChanged) {
-      partial.series = [
-        {
-          id: "kline-main",
-          barWidth: nextWidth
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all([import("echarts-for-react/lib/core"), import("../lib/echarts-candle")])
+      .then(([reactEchartsModule, candleRuntimeModule]) => {
+        if (cancelled) {
+          return;
         }
-      ];
-      lastWidthRef.current = nextWidth;
-    }
-    if (yAxisChanged) {
-      partial.yAxis = [{ min: axisMin, max: axisMax }];
-      lastYAxisRef.current = { min: axisMin, max: axisMax };
-    }
+        const EChartsComponent = reactEchartsModule.default as CandleChartRuntime["EChartsComponent"];
+        setRuntime({
+          EChartsComponent,
+          echarts: candleRuntimeModule.echarts
+        });
+      })
+      .catch(() => {
+        // keep fallback state when runtime loading fails
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-    chart.setOption(
-      partial,
-      { silent: true, lazyUpdate: true, notMerge: false }
-    );
-  }, [candles, candleCount]);
+  const { xData, xDataCompact, kData, periodHigh, periodLow, periodDurationMs } = useMemo(() => {
+    const nextXData = candles.map((c) => formatChartTimeFull(c.timestamp));
+    const nextXDataCompact = candles.map((c) => formatChartTimeShort(c.timestamp));
+    const nextKData = candles.map((c) => [c.open, c.close, c.low, c.high] as [number, number, number, number]);
+    const nextPeriodHigh = candles.length > 0 ? Math.max(...candles.map((item) => item.high)) : Number.NaN;
+    const nextPeriodLow = candles.length > 0 ? Math.min(...candles.map((item) => item.low)) : Number.NaN;
+    const nextPeriodDurationMs =
+      candles.length > 1
+        ? new Date(candles[candles.length - 1].timestamp).getTime() - new Date(candles[0].timestamp).getTime()
+        : 0;
+
+    return {
+      xData: nextXData,
+      xDataCompact: nextXDataCompact,
+      kData: nextKData,
+      periodHigh: nextPeriodHigh,
+      periodLow: nextPeriodLow,
+      periodDurationMs: nextPeriodDurationMs
+    };
+  }, [candles]);
+  const chartGridTop = isMobileChart ? 92 : CHART_GRID_TOP;
+  const chartGridBottom = isMobileChart ? 88 : CHART_GRID_BOTTOM;
+  const chartKey = `${candleCount}-${candles[0]?.timestamp ?? ""}-${candles[candleCount - 1]?.timestamp ?? ""}`;
+  const palette = resolveChartPalette();
+  const titleColor = palette.isLight ? "#0f172a" : "#dbeafe";
+  const minorTextColor = palette.isLight ? "#334155" : "#94a3b8";
+  const axisLineColor = palette.isLight ? "rgba(15,23,42,0.36)" : "#334155";
+  const splitLineColor = palette.isLight ? "rgba(15,23,42,0.12)" : "rgba(148,163,184,0.14)";
+  const tooltipBackground = palette.isLight ? "rgba(255,255,255,0.96)" : "#0f172a";
+  const tooltipBorder = palette.isLight ? "rgba(15,23,42,0.26)" : "#475569";
+  const tooltipTextColor = palette.isLight ? "#0f172a" : "#e2e8f0";
+  const axisPointerLabelBg = palette.isLight ? "rgba(255,255,255,0.96)" : "#334155";
+  const axisPointerLabelBorder = palette.isLight ? "rgba(15,23,42,0.26)" : "#475569";
+  const axisPointerLabelText = palette.isLight ? "#0f172a" : "#e2e8f0";
+  const zoomBorderColor = palette.isLight ? "rgba(15,23,42,0.22)" : "#334155";
+  const zoomFillerColor = rgba(palette.accent, palette.isLight ? 0.24 : 0.18);
+  const zoomBackgroundColor = palette.isLight ? "rgba(255,255,255,0.84)" : "rgba(15,23,42,0.65)";
+  const zoomDataLineColor = palette.isLight ? "rgba(15,23,42,0.44)" : "rgba(148,163,184,0.65)";
+  const zoomDataAreaColor = palette.isLight ? "rgba(148,163,184,0.22)" : "rgba(71,85,105,0.35)";
+  const zoomSelectedLineColor = rgba(palette.accent, palette.isLight ? 0.95 : 0.9);
+  const zoomSelectedAreaColor = rgba(palette.accent, palette.isLight ? 0.28 : 0.25);
+  const gridBoundaryColor = rgba(palette.accent, palette.isLight ? 0.92 : 0.86);
+  const gridLineColor = palette.isLight ? "rgba(15,23,42,0.22)" : "rgba(148,163,184,0.35)";
+  const valueColor = palette.isLight ? "#0f172a" : "#f8fafc";
+
+  const { openMarkerData, closeMarkerData, markerSummaryByCandle } = useMemo(
+    () => buildTradeMarkerData(candles, events),
+    [candles, events]
+  );
+
+  const gridSeries = useMemo(
+    () =>
+      gridLines.map((line, index) => {
+        const isBoundary = index === 0 || index === gridLines.length - 1;
+        const lineType: "solid" | "dashed" = isBoundary ? "solid" : "dashed";
+        return {
+          name: "网格线",
+          type: "line" as const,
+          data: candles.map(() => Number(line.toFixed(4))),
+          symbol: "none" as const,
+          showSymbol: false,
+          showAllSymbol: false,
+          silent: true,
+          tooltip: { show: false },
+          emphasis: {
+            disabled: true
+          },
+          lineStyle: {
+            color: isBoundary ? gridBoundaryColor : gridLineColor,
+            width: isBoundary ? 1.5 : 1,
+            type: lineType
+          }
+        };
+      }),
+    [candles, gridBoundaryColor, gridLineColor, gridLines]
+  );
+
+  const syncChartGeometry = useCallback(() => {
+    syncPriceGridChartGeometry({
+      chart: chartRef.current,
+      candleCount,
+      candles,
+      boundaryGridMin,
+      boundaryGridMax,
+      isMobileChart,
+      showMarkers: showTradeMarkers,
+      refs: {
+        lastWidthRef,
+        lastBarMinWidthRef,
+        lastMarkerGeometryRef,
+        fullRangeMarkerBaselineRef,
+        pendingMarkerBaselineCaptureRef,
+        lastMarkerLabelVisibleRef,
+        lastVisibleCountRef,
+        lastHairlineModeRef,
+        lastYAxisRef
+      }
+    });
+  }, [boundaryGridMax, boundaryGridMin, candleCount, candles, isMobileChart, showTradeMarkers]);
 
   const scheduleSyncGeometry = useCallback(() => {
     if (rafRef.current != null) {
@@ -219,6 +231,29 @@ export default function PriceGridChart({
   }, [syncChartGeometry]);
 
   useEffect(() => {
+    writePlain(STORAGE_KEYS.priceGridLegendSelection, legendSelected);
+  }, [legendSelected]);
+
+  useEffect(() => {
+    const target = containerRef.current;
+    if (!target) {
+      return;
+    }
+    const syncWidth = () => {
+      const width = Math.max(0, Math.round(target.clientWidth || 0));
+      setContainerWidth((prev) => (Math.abs(prev - width) < 1 ? prev : width));
+    };
+    syncWidth();
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", syncWidth);
+      return () => window.removeEventListener("resize", syncWidth);
+    }
+    const observer = new ResizeObserver(() => syncWidth());
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
     scheduleSyncGeometry();
     const onResize = () => scheduleSyncGeometry();
     window.addEventListener("resize", onResize);
@@ -229,198 +264,174 @@ export default function PriceGridChart({
         rafRef.current = null;
       }
     };
-  }, [scheduleSyncGeometry, candleCount]);
+  }, [scheduleSyncGeometry, candleCount, chartHeight]);
 
   const chartEvents = useMemo(
     () => ({
       datazoom: () => scheduleSyncGeometry(),
-      finished: () => scheduleSyncGeometry()
+      finished: () => scheduleSyncGeometry(),
+      legendselectchanged: (payload: unknown) => {
+        if (!payload || typeof payload !== "object") {
+          return;
+        }
+        const event = payload as { name?: unknown; selected?: Record<string, boolean> };
+        const nextSelection: PriceGridLegendSelection = {
+          "K线": typeof event.selected?.["K线"] === "boolean" ? Boolean(event.selected?.["K线"]) : legendSelected["K线"],
+          "网格线":
+            typeof event.selected?.["网格线"] === "boolean"
+              ? Boolean(event.selected?.["网格线"])
+              : legendSelected["网格线"],
+          "成交标注":
+            typeof event.selected?.["成交标注"] === "boolean"
+              ? Boolean(event.selected?.["成交标注"])
+              : legendSelected["成交标注"]
+        };
+        if (event.name === "成交标注") {
+          if (nextSelection["成交标注"]) {
+            pendingMarkerBaselineCaptureRef.current = true;
+          } else {
+            pendingMarkerBaselineCaptureRef.current = false;
+            fullRangeMarkerBaselineRef.current = null;
+          }
+        }
+        setLegendSelected((prev) =>
+          prev["K线"] === nextSelection["K线"] &&
+          prev["网格线"] === nextSelection["网格线"] &&
+          prev["成交标注"] === nextSelection["成交标注"]
+            ? prev
+            : nextSelection
+        );
+        scheduleSyncGeometry();
+      }
     }),
-    [scheduleSyncGeometry]
+    [legendSelected, scheduleSyncGeometry]
   );
 
-  const option: CandleChartOption = {
-    animation: false,
-    title: {
-      text: `${symbol} K线 + 网格区间`,
-      left: 10,
-      top: 8,
-      textStyle: {
-        color: "#dbeafe",
-        fontSize: 14,
-        fontWeight: 600
-      }
-    },
-    legend: {
-      top: 10,
-      right: 170,
-      textStyle: { color: "#94a3b8", fontSize: 12 },
-      data: ["K线", "网格线"]
-    },
-    grid: {
-      left: 62,
-      right: 24,
-      top: CHART_GRID_TOP,
-      bottom: CHART_GRID_BOTTOM
-    },
-    tooltip: {
-      trigger: "axis",
-      axisPointer: {
-        type: "cross",
-        label: {
-          backgroundColor: "#334155",
-          color: "#e2e8f0",
-          borderColor: "#475569",
-          borderWidth: 1
-        }
-      },
-      backgroundColor: "#0f172a",
-      borderColor: "#475569",
-      borderWidth: 1,
-      padding: [8, 10],
-      textStyle: {
-        color: "#e2e8f0",
-        fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-        fontSize: 12
-      },
-      formatter: (params: unknown) => {
-        const list = Array.isArray(params) ? params : [params];
-        const candleItem = list.find(
-          (item) =>
-            item &&
-            typeof item === "object" &&
-            "seriesType" in item &&
-            (item as { seriesType: string }).seriesType === "candlestick"
-        ) as
-          | {
-              axisValueLabel?: string;
-              value?: unknown;
-            }
-          | undefined;
-
-        if (!candleItem) {
-          return "";
-        }
-
-        const parsed = parseOhlc(candleItem.value);
-        if (!parsed) {
-          return "";
-        }
-        const [open, close, low, high] = parsed;
-        const changePct = open !== 0 ? ((close - open) / open) * 100 : 0;
-        const changeColor = changePct >= 0 ? "#34d399" : "#f87171";
-
-        return [
-          `<div style="font-weight:600;margin-bottom:4px;">${candleItem.axisValueLabel ?? ""}</div>`,
-          `<div>O <span style="color:#f8fafc">${formatPrice(open)}</span></div>`,
-          `<div>H <span style="color:#f8fafc">${formatPrice(high)}</span></div>`,
-          `<div>L <span style="color:#f8fafc">${formatPrice(low)}</span></div>`,
-          `<div>C <span style="color:#f8fafc">${formatPrice(close)}</span></div>`,
-          `<div>Δ <span style="color:${changeColor}">${formatPercent(changePct)}</span></div>`
-        ].join("");
-      }
-    },
-    xAxis: {
-      type: "category",
-      data: xData,
-      boundaryGap: true,
-      axisLine: { lineStyle: { color: "#334155" } },
-      axisTick: { alignWithLabel: true },
-      axisLabel: { color: "#94a3b8", fontSize: 12, hideOverlap: true }
-    },
-    yAxis: {
-      scale: true,
-      axisLine: { lineStyle: { color: "#334155" } },
-      splitLine: { lineStyle: { color: "rgba(148,163,184,0.14)" } },
-      axisLabel: { color: "#94a3b8", fontSize: 12 }
-    },
-    dataZoom: [
-      {
-        type: "inside",
-        xAxisIndex: 0,
-        filterMode: "none",
-        zoomOnMouseWheel: true,
-        moveOnMouseWheel: false,
-        moveOnMouseMove: true,
-        preventDefaultMouseMove: true,
-        minSpan: candleCount > 1 ? 1 : undefined,
-        start: defaultZoomStart,
-        end: 100
-      },
-      {
-        type: "slider",
-        xAxisIndex: 0,
-        filterMode: "none",
-        height: 24,
-        bottom: 20,
-        borderColor: "#334155",
-        fillerColor: "rgba(14,165,233,0.18)",
-        backgroundColor: "rgba(15,23,42,0.65)",
-        dataBackground: {
-          lineStyle: { color: "rgba(148,163,184,0.65)" },
-          areaStyle: { color: "rgba(71,85,105,0.35)" }
-        },
-        selectedDataBackground: {
-          lineStyle: { color: "rgba(56,189,248,0.9)" },
-          areaStyle: { color: "rgba(56,189,248,0.25)" }
-        },
-        textStyle: { color: "#94a3b8", fontSize: 11 },
-        start: defaultZoomStart,
-        end: 100
-      }
-    ],
-    series: [
-      {
-        id: "kline-main",
-        name: "K线",
-        type: "candlestick" as const,
-        data: kData,
-        barWidth: "56%",
-        barMaxWidth: 64,
-        progressive: 0,
-        itemStyle: {
-          color: "#10b981",
-          color0: "#f43f5e",
-          borderColor: "#10b981",
-          borderColor0: "#f43f5e",
-          borderWidth: 1
-        }
-      },
-      ...gridSeries
+  const option = useMemo(
+    () =>
+      buildPriceGridChartOption({
+        isMobileChart,
+        isNarrowChart,
+        symbol,
+        titleColor,
+        minorTextColor,
+        axisLineColor,
+        splitLineColor,
+        axisPointerLabelBg,
+        axisPointerLabelText,
+        axisPointerLabelBorder,
+        tooltipBackground,
+        tooltipBorder,
+        tooltipTextColor,
+        valueColor,
+        xData,
+        xDataCompact,
+        candles,
+        markerSummaryByCandle,
+        chartGridTop,
+        chartGridBottom,
+        candleCount,
+        zoomBorderColor,
+        zoomFillerColor,
+        zoomBackgroundColor,
+        zoomDataLineColor,
+        zoomDataAreaColor,
+        zoomSelectedLineColor,
+        zoomSelectedAreaColor,
+        kData,
+        openMarkerData,
+        closeMarkerData,
+        gridSeries,
+        legendSelected
+      }),
+    [
+      axisLineColor,
+      axisPointerLabelBg,
+      axisPointerLabelBorder,
+      axisPointerLabelText,
+      candleCount,
+      candles,
+      chartGridBottom,
+      chartGridTop,
+      closeMarkerData,
+      gridSeries,
+      isMobileChart,
+      isNarrowChart,
+      kData,
+      legendSelected,
+      markerSummaryByCandle,
+      minorTextColor,
+      openMarkerData,
+      splitLineColor,
+      symbol,
+      titleColor,
+      tooltipBackground,
+      tooltipBorder,
+      tooltipTextColor,
+      valueColor,
+      xData,
+      xDataCompact,
+      zoomBackgroundColor,
+      zoomBorderColor,
+      zoomDataAreaColor,
+      zoomDataLineColor,
+      zoomFillerColor,
+      zoomSelectedAreaColor,
+      zoomSelectedLineColor
     ]
-  };
+  );
 
   return (
-    <div className="card fade-up relative p-3">
-      <div className="pointer-events-none absolute right-3 top-3 z-10 rounded border border-slate-600/70 bg-slate-950 px-2.5 py-1.5 text-right text-xs text-slate-200">
-        <p>市场结构: {marketStructure}</p>
-        <p>网格适配度: {gridFitLabel}</p>
+    <div ref={containerRef} className="card fade-up relative p-2.5 sm:p-3">
+      <div
+        className={`pointer-events-none absolute z-10 rounded border border-slate-600/65 bg-slate-950/88 leading-none text-slate-200 ${
+          isMobileChart
+            ? `left-3 right-3 ${isNarrowChart ? "top-[54px]" : "top-[56px]"} h-[22px] px-2 text-[10px]`
+            : "right-3 top-[10px] h-[24px] px-2.5 text-[11px]"
+        }`}
+      >
+        <div className={`flex h-full items-center whitespace-nowrap ${isMobileChart ? "justify-between gap-x-2" : "justify-end gap-x-3"}`}>
+          <p>
+            {isMobileChart ? "高" : "高:"} <span className="mono">{formatPrice(periodHigh)}</span>
+          </p>
+          <p>
+            {isMobileChart ? "低" : "低:"} <span className="mono">{formatPrice(periodLow)}</span>
+          </p>
+          {!isNarrowChart && (
+            <p>
+              {isMobileChart ? "时" : "时长:"}{" "}
+              <span className="mono">{isMobileChart ? formatDurationCompact(periodDurationMs) : formatDuration(periodDurationMs)}</span>
+            </p>
+          )}
+        </div>
       </div>
-      <ReactEChartsCore
-        key={chartKey}
-        echarts={echarts}
-        option={option}
-        style={{ width: "100%", height: 430 }}
-        lazyUpdate
-        onChartReady={(chart) => {
-          chartRef.current = chart;
-          lastWidthRef.current = -1;
-          lastYAxisRef.current = null;
-          scheduleSyncGeometry();
-        }}
-        onEvents={chartEvents}
-      />
-      <div className="mt-2 grid grid-cols-1 gap-2 rounded border border-slate-700/60 bg-slate-950/35 p-2.5 text-xs text-slate-300 sm:grid-cols-3">
-        <p>
-          区间最高价: <span className="mono text-slate-100">{formatPrice(periodHigh)}</span>
-        </p>
-        <p>
-          区间最低价: <span className="mono text-slate-100">{formatPrice(periodLow)}</span>
-        </p>
-        <p>
-          区间时长: <span className="mono text-slate-100">{formatDuration(periodDurationMs)}</span>
-        </p>
-      </div>
+      {runtime ? (
+        <runtime.EChartsComponent
+          key={chartKey}
+          echarts={runtime.echarts}
+          option={option}
+          style={{ width: "100%", height: chartHeight, touchAction: "pan-y pinch-zoom" }}
+          lazyUpdate
+          onChartReady={(chart) => {
+            chartRef.current = chart as any;
+            lastWidthRef.current = -1;
+            lastBarMinWidthRef.current = -1;
+            lastMarkerGeometryRef.current = null;
+            fullRangeMarkerBaselineRef.current = null;
+            pendingMarkerBaselineCaptureRef.current = false;
+            lastMarkerLabelVisibleRef.current = null;
+            lastVisibleCountRef.current = null;
+            lastHairlineModeRef.current = null;
+            lastYAxisRef.current = null;
+            scheduleSyncGeometry();
+          }}
+          onEvents={chartEvents}
+        />
+      ) : (
+        <div className="flex items-center justify-center text-sm text-slate-400" style={{ height: chartHeight }}>
+          K线图运行时加载中...
+        </div>
+      )}
     </div>
   );
 }

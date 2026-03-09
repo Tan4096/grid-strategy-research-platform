@@ -1,79 +1,96 @@
-import { ChangeEvent, useEffect, useRef, useState } from "react";
-import { STORAGE_KEYS, readPlain, writePlain } from "../../lib/storage";
+import { ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
+import {
+  OPTIMIZATION_EXAMPLE_TEMPLATE_ID,
+  OPTIMIZATION_TEMP_TEMPLATE_ID,
+  OptimizationTemplate,
+  resolveOptimizationTemplates
+} from "../../lib/exampleTemplateResolver";
+import { STORAGE_KEYS, writePlain } from "../../lib/storage";
 import { OptimizationConfig } from "../../types";
+import InputDialog from "../ui/InputDialog";
 
 interface Props {
   config: OptimizationConfig;
   onChange: (next: OptimizationConfig) => void;
+  compact?: boolean;
+  selectedTemplateId?: string;
+  onSelectedTemplateIdChange?: (value: string) => void;
+  onSelectedTemplateNameChange?: (name: string) => void;
 }
 
-interface OptimizationTemplate {
-  id: string;
-  name: string;
-  config: OptimizationConfig;
+function randomId(): string {
+  return `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 }
 
-const LEGACY_OPTIMIZATION_TEMPLATES_KEY = "btc-grid-backtest:optimization-templates:v1";
-
-function loadTemplates(): OptimizationTemplate[] {
-  return (
-    readPlain<OptimizationTemplate[]>(
-      STORAGE_KEYS.optimizationTemplates,
-      (raw) => {
-        if (!Array.isArray(raw)) {
-          return [];
-        }
-        return raw.filter(
-          (item) => item && typeof item === "object" && "id" in item && "name" in item && "config" in item
-        ) as OptimizationTemplate[];
-      },
-      [LEGACY_OPTIMIZATION_TEMPLATES_KEY]
-    ) ?? []
-  );
-}
-
-function saveTemplates(templates: OptimizationTemplate[]) {
-  writePlain(STORAGE_KEYS.optimizationTemplates, templates);
-}
-
-export default function OptimizationTemplateSection({ config, onChange }: Props) {
+export default function OptimizationTemplateSection({
+  config,
+  onChange,
+  compact = false,
+  selectedTemplateId: controlledSelectedTemplateId,
+  onSelectedTemplateIdChange,
+  onSelectedTemplateNameChange
+}: Props) {
   const importRef = useRef<HTMLInputElement | null>(null);
+  const initialConfigRef = useRef(config);
   const [templates, setTemplates] = useState<OptimizationTemplate[]>([]);
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
+  const [selectedTemplateIdState, setSelectedTemplateIdState] = useState<string>("");
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+  const [saveDialogDefaultName, setSaveDialogDefaultName] = useState("我的优化模板");
+
+  const selectedTemplateId = controlledSelectedTemplateId ?? selectedTemplateIdState;
+
+  const updateSelectedTemplateId = useCallback(
+    (value: string) => {
+      if (controlledSelectedTemplateId === undefined) {
+        setSelectedTemplateIdState(value);
+      }
+      onSelectedTemplateIdChange?.(value);
+    },
+    [controlledSelectedTemplateId, onSelectedTemplateIdChange]
+  );
 
   useEffect(() => {
-    const loaded = loadTemplates();
+    const loaded = resolveOptimizationTemplates(initialConfigRef.current);
     setTemplates(loaded);
-    if (loaded.length > 0) {
-      setSelectedTemplateId(loaded[0].id);
-    }
-  }, []);
+    const defaultSelection =
+      loaded.find((item) => item.id === OPTIMIZATION_TEMP_TEMPLATE_ID)?.id ??
+      loaded[0]?.id ??
+      OPTIMIZATION_EXAMPLE_TEMPLATE_ID;
+    updateSelectedTemplateId(defaultSelection);
+  }, [updateSelectedTemplateId]);
 
-  const updateTemplates = (next: OptimizationTemplate[]) => {
-    setTemplates(next);
-    saveTemplates(next);
-    if (next.length === 0) {
-      setSelectedTemplateId("");
+  useEffect(() => {
+    if (!onSelectedTemplateNameChange) {
       return;
     }
-    if (!next.some((item) => item.id === selectedTemplateId)) {
-      setSelectedTemplateId(next[0].id);
+    const selected = templates.find((item) => item.id === selectedTemplateId);
+    onSelectedTemplateNameChange(selected?.name ?? "示例模板");
+  }, [onSelectedTemplateNameChange, selectedTemplateId, templates]);
+
+  const updateTemplates = (next: OptimizationTemplate[], preferredTemplateId?: string) => {
+    writePlain(STORAGE_KEYS.optimizationTemplates, next);
+    const normalized = resolveOptimizationTemplates(config);
+    setTemplates(normalized);
+    const preferred = preferredTemplateId ?? selectedTemplateId;
+    if (!normalized.length) {
+      updateSelectedTemplateId("");
+      return;
     }
+    if (preferred && normalized.some((item) => item.id === preferred)) {
+      updateSelectedTemplateId(preferred);
+      return;
+    }
+    updateSelectedTemplateId(normalized[0].id);
   };
 
   const handleSaveTemplate = () => {
-    if (!selectedTemplateId) {
-      const name = window.prompt("优化模板名称", "我的优化模板");
-      if (!name || !name.trim()) {
-        return;
-      }
-      const template: OptimizationTemplate = {
-        id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
-        name: name.trim(),
-        config: { ...config }
-      };
-      updateTemplates([template, ...templates]);
-      setSelectedTemplateId(template.id);
+    if (
+      !selectedTemplateId ||
+      selectedTemplateId === OPTIMIZATION_EXAMPLE_TEMPLATE_ID ||
+      selectedTemplateId === OPTIMIZATION_TEMP_TEMPLATE_ID
+    ) {
+      setSaveDialogDefaultName("我的优化模板");
+      setSaveDialogOpen(true);
       return;
     }
 
@@ -89,18 +106,18 @@ export default function OptimizationTemplateSection({ config, onChange }: Props)
     );
   };
 
-  const handleCreateTemplate = () => {
-    const name = window.prompt("新模板名称", "我的优化模板");
-    if (!name || !name.trim()) {
+  const handleConfirmSaveTemplate = (name: string) => {
+    const normalized = name.trim();
+    if (!normalized) {
       return;
     }
     const template: OptimizationTemplate = {
-      id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
-      name: name.trim(),
+      id: randomId(),
+      name: normalized,
       config: { ...config }
     };
-    updateTemplates([template, ...templates]);
-    setSelectedTemplateId(template.id);
+    updateTemplates([template, ...templates], template.id);
+    setSaveDialogOpen(false);
   };
 
   const handleApplyTemplate = () => {
@@ -112,35 +129,14 @@ export default function OptimizationTemplateSection({ config, onChange }: Props)
   };
 
   const handleDeleteTemplate = () => {
-    if (!selectedTemplateId) {
+    if (
+      !selectedTemplateId ||
+      selectedTemplateId === OPTIMIZATION_EXAMPLE_TEMPLATE_ID ||
+      selectedTemplateId === OPTIMIZATION_TEMP_TEMPLATE_ID
+    ) {
       return;
     }
     updateTemplates(templates.filter((item) => item.id !== selectedTemplateId));
-  };
-
-  const handleRenameTemplate = () => {
-    if (!selectedTemplateId) {
-      return;
-    }
-    const selected = templates.find((item) => item.id === selectedTemplateId);
-    if (!selected) {
-      return;
-    }
-    const name = window.prompt("重命名模板", selected.name);
-    if (!name || !name.trim()) {
-      return;
-    }
-    const trimmed = name.trim();
-    updateTemplates(
-      templates.map((item) =>
-        item.id === selectedTemplateId
-          ? {
-              ...item,
-              name: trimmed
-            }
-          : item
-      )
-    );
   };
 
   const handleExportTemplate = () => {
@@ -169,7 +165,7 @@ export default function OptimizationTemplateSection({ config, onChange }: Props)
         parsed.forEach((item) => {
           if (item && typeof item === "object" && "name" in item && "config" in item) {
             normalized.push({
-              id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+              id: randomId(),
               name: String((item as { name: unknown }).name || "导入模板"),
               config: (item as { config: OptimizationConfig }).config
             });
@@ -177,7 +173,7 @@ export default function OptimizationTemplateSection({ config, onChange }: Props)
         });
       } else if (parsed && typeof parsed === "object" && "optimization_mode" in parsed) {
         normalized.push({
-          id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+          id: randomId(),
           name: "导入模板",
           config: parsed as OptimizationConfig
         });
@@ -185,8 +181,7 @@ export default function OptimizationTemplateSection({ config, onChange }: Props)
       if (normalized.length === 0) {
         return;
       }
-      updateTemplates([...normalized, ...templates]);
-      setSelectedTemplateId(normalized[0].id);
+      updateTemplates([...normalized, ...templates], normalized[0].id);
     } catch {
       // ignore malformed file
     } finally {
@@ -195,93 +190,86 @@ export default function OptimizationTemplateSection({ config, onChange }: Props)
   };
 
   return (
-    <section className="space-y-2 rounded-md border border-slate-700/60 bg-slate-900/30 p-3">
+    <section
+      className={`card-sub border border-slate-700/60 bg-slate-900/30 ${compact ? "space-y-1.5 p-2.5" : "space-y-2 p-3"}`}
+      data-tour-id="optimization-template-section"
+    >
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-300">优化模板</p>
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            className="rounded border border-slate-600 bg-slate-800/70 px-2 py-1 text-[11px] font-semibold text-slate-100"
-            onClick={handleSaveTemplate}
-          >
-            {selectedTemplateId ? "保存到当前模板" : "保存当前参数"}
-          </button>
-          <button
-            type="button"
-            className="rounded border border-slate-600 bg-slate-800/70 px-2 py-1 text-[11px] text-slate-200"
-            onClick={handleCreateTemplate}
-          >
-            新建模板
-          </button>
-        </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+      <div className={`mobile-two-col-grid grid grid-cols-1 ${compact ? "gap-1.5" : "gap-2"}`}>
         <select
-          className="w-full rounded-md border border-slate-700 bg-slate-950/70 px-2 py-2 text-sm text-slate-100"
+          className="ui-input"
           value={selectedTemplateId}
-          onChange={(e) => setSelectedTemplateId(e.target.value)}
+          onChange={(e) => updateSelectedTemplateId(e.target.value)}
         >
-          <option value="">选择模板</option>
           {templates.map((item) => (
             <option key={item.id} value={item.id}>
               {item.name}
             </option>
           ))}
         </select>
+      </div>
+      <div className={`grid grid-cols-2 ${compact ? "gap-1.5" : "gap-2"} sm:grid-cols-5`}>
         <button
           type="button"
-          className="rounded border border-emerald-500/50 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-200 disabled:opacity-50"
+          className="ui-btn ui-btn-primary ui-btn-xs w-full min-w-0 px-2 disabled:opacity-50"
           onClick={handleApplyTemplate}
           disabled={!selectedTemplateId}
         >
-          应用模板
+          应用
         </button>
+        <button
+          type="button"
+          className="ui-btn ui-btn-primary ui-btn-xs w-full min-w-0 px-2"
+          onClick={handleSaveTemplate}
+        >
+          保存
+        </button>
+        <button
+          type="button"
+          className="ui-btn ui-btn-secondary ui-btn-xs w-full min-w-0 px-2 disabled:opacity-50"
+          onClick={handleExportTemplate}
+          disabled={templates.length === 0}
+        >
+          导出
+        </button>
+        <button
+          type="button"
+          className="ui-btn ui-btn-secondary ui-btn-xs w-full min-w-0 px-2"
+          onClick={() => importRef.current?.click()}
+        >
+          导入
+        </button>
+        <button
+          type="button"
+          className="ui-btn ui-btn-secondary ui-btn-xs w-full min-w-0 px-2 disabled:opacity-50"
+          onClick={handleDeleteTemplate}
+          disabled={
+            !selectedTemplateId ||
+            selectedTemplateId === OPTIMIZATION_EXAMPLE_TEMPLATE_ID ||
+            selectedTemplateId === OPTIMIZATION_TEMP_TEMPLATE_ID
+          }
+        >
+          删除
+        </button>
+        <input
+          ref={importRef}
+          className="hidden"
+          type="file"
+          accept=".json,application/json"
+          onChange={handleImportTemplate}
+        />
       </div>
-
-      <details className="rounded-md border border-slate-700/60 bg-slate-950/40 px-2 py-2">
-        <summary className="cursor-pointer text-xs text-slate-300">模板管理（导入 / 导出 / 删除）</summary>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            className="rounded border border-slate-600 bg-slate-800/70 px-3 py-1.5 text-xs text-slate-200 disabled:opacity-50"
-            onClick={handleRenameTemplate}
-            disabled={!selectedTemplateId}
-          >
-            重命名
-          </button>
-          <button
-            type="button"
-            className="rounded border border-slate-600 bg-slate-800/70 px-3 py-1.5 text-xs text-slate-200 disabled:opacity-50"
-            onClick={handleExportTemplate}
-            disabled={templates.length === 0}
-          >
-            导出 JSON
-          </button>
-          <button
-            type="button"
-            className="rounded border border-slate-600 bg-slate-800/70 px-3 py-1.5 text-xs text-slate-200"
-            onClick={() => importRef.current?.click()}
-          >
-            导入 JSON
-          </button>
-          <button
-            type="button"
-            className="rounded border border-slate-600 bg-slate-800/70 px-3 py-1.5 text-xs font-semibold text-slate-100 disabled:opacity-50"
-            onClick={handleDeleteTemplate}
-            disabled={!selectedTemplateId}
-          >
-            删除模板
-          </button>
-          <input
-            ref={importRef}
-            className="hidden"
-            type="file"
-            accept=".json,application/json"
-            onChange={handleImportTemplate}
-          />
-        </div>
-      </details>
+      <InputDialog
+        open={saveDialogOpen}
+        title="优化模板名称"
+        defaultValue={saveDialogDefaultName}
+        placeholder="请输入优化模板名称"
+        onCancel={() => setSaveDialogOpen(false)}
+        onConfirm={handleConfirmSaveTemplate}
+      />
     </section>
   );
 }

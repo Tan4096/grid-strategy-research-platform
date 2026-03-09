@@ -1,4 +1,6 @@
+import { useMemo } from "react";
 import { BacktestResponse, CurvePoint } from "../types";
+import { buildOpenPositionsCurve, buildReturnRateCurve } from "../lib/backtestCurveTransforms";
 import ComparisonLineChart from "./ComparisonLineChart";
 
 interface Props {
@@ -56,8 +58,25 @@ export default function BacktestComparisonWorkspace({
   const baseSummary = baseResult.summary;
   const candidateSummary = candidateResult.summary;
 
-  const baseMaxMarginRatio = maxCurveValue(baseResult.margin_ratio_curve);
-  const candidateMaxMarginRatio = maxCurveValue(candidateResult.margin_ratio_curve);
+  const baseReturnRateCurve = useMemo(
+    () => buildReturnRateCurve(baseResult.equity_curve, baseSummary.initial_margin),
+    [baseResult.equity_curve, baseSummary.initial_margin]
+  );
+  const candidateReturnRateCurve = useMemo(
+    () => buildReturnRateCurve(candidateResult.equity_curve, candidateSummary.initial_margin),
+    [candidateResult.equity_curve, candidateSummary.initial_margin]
+  );
+
+  const baseOpenPositionsCurve = useMemo(
+    () => buildOpenPositionsCurve(baseResult.events),
+    [baseResult.events]
+  );
+  const candidateOpenPositionsCurve = useMemo(
+    () => buildOpenPositionsCurve(candidateResult.events),
+    [candidateResult.events]
+  );
+  const baseMaxOpenPositions = maxCurveValue(baseOpenPositionsCurve);
+  const candidateMaxOpenPositions = maxCurveValue(candidateOpenPositionsCurve);
 
   return (
     <section className="card p-3">
@@ -68,7 +87,7 @@ export default function BacktestComparisonWorkspace({
         </p>
       </div>
 
-      <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-4">
+      <div className="mobile-two-col-grid mt-3 grid grid-cols-1 gap-3 xl:grid-cols-4">
         <DeltaCard
           label="总收益"
           base={baseSummary.total_return_usdt}
@@ -92,21 +111,23 @@ export default function BacktestComparisonWorkspace({
           unit=" 百分点"
         />
         <DeltaCard
-          label="风险率峰值"
-          base={baseMaxMarginRatio}
-          candidate={candidateMaxMarginRatio}
-          delta={candidateMaxMarginRatio - baseMaxMarginRatio}
+          label="峰值持仓格数"
+          base={baseMaxOpenPositions}
+          candidate={candidateMaxOpenPositions}
+          delta={candidateMaxOpenPositions - baseMaxOpenPositions}
           betterWhenLower
-          unit=""
+          unit=" 格"
         />
       </div>
 
       <div className="mt-4 space-y-4">
         <ComparisonLineChart
-          title="收益曲线对比"
-          baseData={baseResult.equity_curve}
-          candidateData={candidateResult.equity_curve}
-          yAxisLabel="USDT"
+          title="收益率曲线对比"
+          baseData={baseReturnRateCurve}
+          candidateData={candidateReturnRateCurve}
+          yAxisLabel="收益率"
+          baseReturnAmountBase={baseSummary.initial_margin}
+          candidateReturnAmountBase={candidateSummary.initial_margin}
           candidateLabel={candidateLabel ?? "优化参数"}
         />
         <ComparisonLineChart
@@ -117,10 +138,10 @@ export default function BacktestComparisonWorkspace({
           candidateLabel={candidateLabel ?? "优化参数"}
         />
         <ComparisonLineChart
-          title="保证金风险率对比"
-          baseData={baseResult.margin_ratio_curve}
-          candidateData={candidateResult.margin_ratio_curve}
-          yAxisLabel="保证金比例"
+          title="持仓网格数对比"
+          baseData={baseOpenPositionsCurve}
+          candidateData={candidateOpenPositionsCurve}
+          yAxisLabel="持仓格数"
           candidateLabel={candidateLabel ?? "优化参数"}
         />
       </div>

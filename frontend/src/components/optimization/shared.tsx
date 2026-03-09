@@ -9,7 +9,7 @@ export function labelClass() {
 }
 
 export function inputClass() {
-  return "w-full rounded-md border border-slate-700 bg-slate-950/70 px-2 py-1.5 text-sm text-slate-100 outline-none transition focus:border-slate-400";
+  return "ui-input ui-input-sm";
 }
 
 export function numberOrNull(value: string): number | null {
@@ -184,7 +184,7 @@ export function SweepEditor({
         </label>
       </div>
 
-      <div className="grid grid-cols-3 gap-1.5">
+      <div className="mobile-two-col-grid grid grid-cols-1 gap-1.5 min-[380px]:grid-cols-3">
         <input
           className={inputClass()}
           type="number"
@@ -204,7 +204,7 @@ export function SweepEditor({
           disabled={!sweep.enabled}
         />
         <input
-          className={inputClass()}
+          className={`${inputClass()} mobile-two-col-span`}
           type="number"
           step={integerStep ? 1 : 0.1}
           placeholder="步长"

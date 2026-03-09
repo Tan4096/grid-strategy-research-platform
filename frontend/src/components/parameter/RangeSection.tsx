@@ -15,9 +15,9 @@ interface Props {
 
 export default function RangeSection({ request, updateStrategy, updateData }: Props) {
   return (
-    <section className="space-y-3 rounded-md border border-slate-700/60 bg-slate-900/30 p-3">
+    <section className="card-sub space-y-3 border border-slate-700/60 bg-slate-900/30 p-3" data-tour-id="range-section">
       <p className="text-xs font-semibold uppercase tracking-wide text-slate-300">区间设置</p>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-2 gap-2 sm:gap-3">
         <div>
           <label className={labelClass()}>方向</label>
           <select

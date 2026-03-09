@@ -19,7 +19,7 @@ export function labelClass(): string {
 }
 
 export function inputClass(): string {
-  return "w-full rounded-md border border-slate-700 bg-slate-950/70 px-2 py-2 text-sm text-slate-100 outline-none transition focus:border-slate-400";
+  return "ui-input min-w-0";
 }
 
 export function formatPercent(value: number | null | undefined, digits = 4): string {
@@ -54,25 +54,24 @@ export const INTERVAL_OPTIONS: Array<{ value: Interval; label: string }> = [
 export const DATA_SOURCE_OPTIONS: Array<{ value: DataSource; label: string }> = [
   { value: "binance", label: "Binance Futures API" },
   { value: "bybit", label: "Bybit API" },
-  { value: "okx", label: "OKX API" },
-  { value: "csv", label: "CSV 上传" }
+  { value: "okx", label: "OKX API" }
 ];
 
 export const SYMBOL_OPTIONS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "HYPEUSDT"] as const;
 
 export const RANGE_FIELDS: NumericFieldSpec[] = [
-  { key: "lower", label: "LOWER" },
-  { key: "upper", label: "UPPER" },
-  { key: "grids", label: "GRIDS", min: 2, step: 1 }
+  { key: "lower", label: "下边界" },
+  { key: "upper", label: "上边界" },
+  { key: "grids", label: "网格数", min: 2, step: 1 }
 ];
 
 export const POSITION_FIELDS: NumericFieldSpec[] = [
-  { key: "leverage", label: "LEVERAGE", min: 1, step: 0.1 },
-  { key: "margin", label: "MARGIN (USDT)", min: 1, step: 10 }
+  { key: "leverage", label: "杠杆倍数", min: 1, step: 0.1 },
+  { key: "margin", label: "初始保证金 (USDT)", min: 1, step: 10 }
 ];
 
 export const RISK_FIELDS: NumericFieldSpec[] = [
-  { key: "stop_loss", label: "STOP_LOSS", min: 1 },
+  { key: "stop_loss", label: "止损价格", min: 1 },
   { key: "maintenance_margin_rate", label: "维持保证金率 (%)", step: 0.1, scale: 100 },
   { key: "slippage", label: "滑点 (%)", step: 0.001, scale: 100 }
 ];

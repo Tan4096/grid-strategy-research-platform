@@ -25,6 +25,10 @@ export default function ComputeSection({
   summary
 }: Props) {
   const selectedMode = activeMode(config.max_workers, config.batch_size, config.chunk_size);
+  const modeBtnClass = (active: boolean) =>
+    `ui-btn ui-btn-xs w-full ${
+      active ? "ui-btn-primary" : "ui-btn-secondary"
+    }`;
 
   const handleApplyMode = (mode: ComputeMode) => {
     const preset = modePreset(mode);
@@ -46,35 +50,23 @@ export default function ComputeSection({
       onToggle={onToggle}
       summary={summary}
     >
-      <div className="mb-3 grid grid-cols-3 gap-2">
+      <div className="mobile-two-col-grid mb-3 grid grid-cols-1 gap-2 min-[380px]:grid-cols-3">
         <button
-          className={`rounded-md border px-3 py-2 text-sm font-semibold transition ${
-            selectedMode === "fast"
-              ? "border-slate-300/70 bg-slate-200/20 text-slate-100"
-              : "border-slate-700 bg-slate-900/50 text-slate-200 hover:bg-slate-800/60"
-          }`}
+          className={modeBtnClass(selectedMode === "fast")}
           type="button"
           onClick={() => handleApplyMode("fast")}
         >
           极速
         </button>
         <button
-          className={`rounded-md border px-3 py-2 text-sm font-semibold transition ${
-            selectedMode === "balanced"
-              ? "border-slate-300/70 bg-slate-200/20 text-slate-100"
-              : "border-slate-700 bg-slate-900/50 text-slate-200 hover:bg-slate-800/60"
-          }`}
+          className={modeBtnClass(selectedMode === "balanced")}
           type="button"
           onClick={() => handleApplyMode("balanced")}
         >
           均衡
         </button>
         <button
-          className={`rounded-md border px-3 py-2 text-sm font-semibold transition ${
-            selectedMode === "eco"
-              ? "border-slate-300/70 bg-slate-200/20 text-slate-100"
-              : "border-slate-700 bg-slate-900/50 text-slate-200 hover:bg-slate-800/60"
-          }`}
+          className={`${modeBtnClass(selectedMode === "eco")} mobile-two-col-span`}
           type="button"
           onClick={() => handleApplyMode("eco")}
         >
@@ -86,7 +78,7 @@ export default function ComputeSection({
         当前调度: 进程 {config.max_workers} / 批大小 {config.batch_size} / Chunk {config.chunk_size}
       </div>
 
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-2">
         <div>
           <label className={labelClass()}>{usesTrialBudget ? "最大试验数" : "最大组合数"}</label>
           <input

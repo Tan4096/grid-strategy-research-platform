@@ -2,8 +2,10 @@ import * as echarts from "echarts/core";
 import {
   CandlestickChart,
   LineChart,
+  ScatterChart,
   type CandlestickSeriesOption,
-  type LineSeriesOption
+  type LineSeriesOption,
+  type ScatterSeriesOption
 } from "echarts/charts";
 import {
   DataZoomComponent,
@@ -27,6 +29,7 @@ echarts.use([
   LegendComponent,
   LineChart,
   CandlestickChart,
+  ScatterChart,
   CanvasRenderer
 ]);
 
@@ -38,6 +41,7 @@ export type CandleChartOption = echarts.ComposeOption<
   | LegendComponentOption
   | CandlestickSeriesOption
   | LineSeriesOption
+  | ScatterSeriesOption
 >;
 
 export { echarts };

@@ -20,6 +20,9 @@ export function humanizeConstraint(code: string): string {
   if (code === "validation_return<=0") {
     return "验证期收益非正";
   }
+  if (code.startsWith("max_possible_loss>")) {
+    return `最大可能亏损超限（上限 ${code.split(">")[1]} USDT）`;
+  }
   return code;
 }
 

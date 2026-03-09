@@ -19,7 +19,7 @@ export default function RobustSection({ config, onChange, open, onToggle, summar
       onToggle={onToggle}
       summary={summary}
     >
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
         <div>
           <label className={labelClass()}>最小平仓交易数</label>
           <input
@@ -72,7 +72,7 @@ export default function RobustSection({ config, onChange, open, onToggle, summar
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-2">
         <label className="flex items-center gap-2 text-sm text-slate-300">
           <input
             type="checkbox"

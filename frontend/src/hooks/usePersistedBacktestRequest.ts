@@ -25,9 +25,7 @@ function normalizeStoredRequest(raw: unknown): BacktestRequest | null {
     },
     data: {
       ...FALLBACK_DEFAULTS.data,
-      ...candidate.data,
-      // Never restore raw CSV payload from local storage.
-      csv_content: null
+      ...candidate.data
     }
   };
 }
@@ -44,12 +42,7 @@ function loadStoredBacktestRequest(): BacktestRequest | null {
 function saveBacktestRequestToStorage(request: BacktestRequest): void {
   const safeRequest: BacktestRequest = {
     strategy: { ...request.strategy },
-    data: {
-      ...request.data,
-      // Avoid restoring CSV mode without file content in a new session.
-      source: request.data.source === "csv" ? "binance" : request.data.source,
-      csv_content: null
-    }
+    data: { ...request.data }
   };
   writeVersioned(STORAGE_KEYS.backtestRequest, BACKTEST_STORAGE_VERSION, safeRequest);
 }

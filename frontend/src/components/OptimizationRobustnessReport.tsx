@@ -1,4 +1,6 @@
 import ReactEChartsCore from "echarts-for-react/lib/core";
+import { useEffect, useRef, useState } from "react";
+import { useLayoutCardHeight } from "../hooks/useLayoutCardHeight";
 import { echarts, type RadarChartOption } from "../lib/echarts-radar";
 import { OptimizationRow } from "../types";
 
@@ -30,7 +32,41 @@ function normalizeByScale(value: number | null, scale: number): number {
   return Math.max(0, Math.min(1, value / scale));
 }
 
+function isMobileViewport(): boolean {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return false;
+  }
+  return window.matchMedia("(max-width: 767px)").matches;
+}
+
 export default function OptimizationRobustnessReport({ rows, bestRow }: Props) {
+  const chartContainerRef = useRef<HTMLDivElement | null>(null);
+  const [isMobile, setIsMobile] = useState<boolean>(() => isMobileViewport());
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return;
+    }
+    const media = window.matchMedia("(max-width: 767px)");
+    const sync = (matches: boolean) => setIsMobile(matches);
+    sync(media.matches);
+    const handler = (event: MediaQueryListEvent) => sync(event.matches);
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", handler);
+      return () => media.removeEventListener("change", handler);
+    }
+    media.onchange = handler;
+    return () => {
+      media.onchange = null;
+    };
+  }, []);
+
+  const chartHeight = useLayoutCardHeight(chartContainerRef, {
+    baseHeight: isMobile ? 300 : 360,
+    minHeight: isMobile ? 200 : 220,
+    maxHeight: 1400,
+    reservedSpacePx: 8
+  });
   if (!bestRow || rows.length === 0) {
     return <div className="card p-4 text-sm text-slate-300">暂无可计算的稳健性数据</div>;
   }
@@ -72,27 +108,36 @@ export default function OptimizationRobustnessReport({ rows, bestRow }: Props) {
   const radarOption: RadarChartOption = {
     title: {
       text: "训练期 vs 验证期 稳健性雷达",
-      left: 10,
-      top: 8,
+      left: isMobile ? 8 : 10,
+      top: isMobile ? 6 : 8,
       textStyle: {
         color: "#dbeafe",
-        fontSize: 13,
+        fontSize: isMobile ? 11 : 13,
         fontWeight: 500
       }
     },
-    legend: {
-      top: 8,
-      right: 10,
-      textStyle: { color: "#94a3b8" },
-      data: ["训练期", "验证期"]
-    },
+    legend: isMobile
+      ? {
+          left: "center",
+          bottom: 2,
+          itemWidth: 11,
+          itemHeight: 7,
+          textStyle: { color: "#94a3b8", fontSize: 10 },
+          data: ["训练期", "验证期"]
+        }
+      : {
+          top: 8,
+          right: 10,
+          textStyle: { color: "#94a3b8", fontSize: 12 },
+          data: ["训练期", "验证期"]
+        },
     tooltip: {
       trigger: "item"
     },
     radar: {
-      center: ["50%", "58%"],
-      radius: "62%",
-      axisName: { color: "#94a3b8" },
+      center: isMobile ? ["50%", "54%"] : ["50%", "58%"],
+      radius: isMobile ? "56%" : "62%",
+      axisName: { color: "#94a3b8", fontSize: isMobile ? 10 : 12 },
       splitLine: { lineStyle: { color: "rgba(148,163,184,0.25)" } },
       indicator: [
         { name: "收益", max: 1 },
@@ -127,7 +172,7 @@ export default function OptimizationRobustnessReport({ rows, bestRow }: Props) {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
+      <div className="mobile-two-col-grid grid grid-cols-1 gap-3 min-[440px]:grid-cols-2 xl:grid-cols-3">
         <div className="card p-3 text-xs text-slate-200">
           <p className="font-semibold text-cyan-200">参数稳定岛</p>
           <p className="mt-1">邻域样本数: {neighbors.length}</p>
@@ -148,8 +193,8 @@ export default function OptimizationRobustnessReport({ rows, bestRow }: Props) {
         </div>
       </div>
 
-      <div className="card fade-up p-2">
-        <ReactEChartsCore echarts={echarts} option={radarOption} style={{ height: 360, width: "100%" }} notMerge lazyUpdate />
+      <div ref={chartContainerRef} className="card fade-up p-2">
+        <ReactEChartsCore echarts={echarts} option={radarOption} style={{ height: chartHeight, width: "100%" }} notMerge lazyUpdate />
       </div>
     </div>
   );

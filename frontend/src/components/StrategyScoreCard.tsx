@@ -2,6 +2,7 @@ import { StrategyScoring } from "../types";
 
 interface Props {
   scoring: StrategyScoring;
+  embedded?: boolean;
 }
 
 const GRADE_CLASS: Record<StrategyScoring["grade"], string> = {
@@ -23,38 +24,42 @@ function reasonList(reasons: string[] | undefined): string[] {
   return reasons;
 }
 
-export default function StrategyScoreCard({ scoring }: Props) {
+export default function StrategyScoreCard({ scoring, embedded = false }: Props) {
   return (
-    <div className="card p-3 text-xs text-slate-200">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="font-semibold text-slate-100">策略综合评分</p>
-          <p className="mt-1 text-sm font-semibold text-slate-100">{fmt(scoring.final_score)} / 100</p>
+    <div className={embedded ? "text-xs text-slate-200" : "card p-3 text-xs text-slate-200"}>
+      {embedded ? (
+        <p className="font-semibold text-slate-100">评分维度</p>
+      ) : (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <p className="font-semibold text-slate-100">策略综合评分</p>
+            <p className="mt-1 text-sm font-semibold text-slate-100">{fmt(scoring.final_score)} / 100</p>
+          </div>
+          <span className={`inline-flex rounded border px-2 py-1 text-xs font-semibold ${GRADE_CLASS[scoring.grade]}`}>
+            等级 {scoring.grade}
+          </span>
         </div>
-        <span className={`inline-flex rounded border px-2 py-1 text-xs font-semibold ${GRADE_CLASS[scoring.grade]}`}>
-          等级 {scoring.grade}
-        </span>
+      )}
+
+      <div className="mobile-two-col-grid mt-3 grid grid-cols-1 gap-2 min-[420px]:grid-cols-2 xl:grid-cols-5">
+        <div className="card-sub px-2 py-2">
+          收益: <span className="mono">{fmt(scoring.profit_score)}</span>
+        </div>
+        <div className="card-sub px-2 py-2">
+          风险: <span className="mono">{fmt(scoring.risk_score)}</span>
+        </div>
+        <div className="card-sub px-2 py-2">
+          稳定: <span className="mono">{fmt(scoring.stability_score)}</span>
+        </div>
+        <div className="card-sub px-2 py-2">
+          鲁棒: <span className="mono">{fmt(scoring.robustness_score)}</span>
+        </div>
+        <div className="card-sub px-2 py-2">
+          行为: <span className="mono">{fmt(scoring.behavior_score)}</span>
+        </div>
       </div>
 
-      <div className="mt-3 grid grid-cols-2 gap-2 xl:grid-cols-5">
-        <div className="rounded border border-slate-700/60 bg-slate-900/40 px-2 py-2">
-          Profit: <span className="mono">{fmt(scoring.profit_score)}</span>
-        </div>
-        <div className="rounded border border-slate-700/60 bg-slate-900/40 px-2 py-2">
-          Risk: <span className="mono">{fmt(scoring.risk_score)}</span>
-        </div>
-        <div className="rounded border border-slate-700/60 bg-slate-900/40 px-2 py-2">
-          Stability: <span className="mono">{fmt(scoring.stability_score)}</span>
-        </div>
-        <div className="rounded border border-slate-700/60 bg-slate-900/40 px-2 py-2">
-          Robustness: <span className="mono">{fmt(scoring.robustness_score)}</span>
-        </div>
-        <div className="rounded border border-slate-700/60 bg-slate-900/40 px-2 py-2">
-          Behavior: <span className="mono">{fmt(scoring.behavior_score)}</span>
-        </div>
-      </div>
-
-      <details className="mt-3 rounded border border-slate-700/60 bg-slate-900/40 p-2">
+      <details className="card-sub mt-3 p-2">
         <summary className="cursor-pointer text-xs font-semibold text-slate-100">评分说明</summary>
         <div className="mt-2 space-y-2 text-[11px] text-slate-300">
           <p>
@@ -96,4 +101,3 @@ export default function StrategyScoreCard({ scoring }: Props) {
     </div>
   );
 }
-

@@ -1,23 +1,20 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { OptimizationResultTab } from "../components/OptimizationPanel";
-import {
-  cancelOptimization,
-  exportOptimizationCsv,
-  fetchOptimizationHeatmap,
-  fetchOptimizationHistory,
-  fetchOptimizationStatus,
-  restartOptimization,
-  startOptimization
-} from "../lib/api";
-import { useOptimizationPolling } from "./useOptimizationPolling";
 import {
   BacktestRequest,
   OptimizationConfig,
+  OptimizationHistoryClearResult,
+  OptimizationHistoryRestoreResult,
+  JobTransportMode,
   OptimizationProgressResponse,
-  OptimizationRequest,
   OptimizationStatusResponse,
   SortOrder
 } from "../types";
+import { useOptimizationHistoryState } from "./optimization/useOptimizationHistoryState";
+import { useOptimizationJobActions } from "./optimization/useOptimizationJobActions";
+import { useOptimizationResultData } from "./optimization/useOptimizationResultData";
+import { useOptimizationPolling } from "./useOptimizationPolling";
+import type { EmitOperationEventInput } from "./useOperationFeedback";
 
 interface Precheck {
   errors: string[];
@@ -30,7 +27,8 @@ interface Params {
   optimizationConfig: OptimizationConfig;
   optimizationConfigReady: boolean;
   optimizationPrecheck: Precheck;
-  showToast: (message: string) => void;
+  showToast: (message: string | EmitOperationEventInput) => void;
+  notifyCenter: (message: string | EmitOperationEventInput) => void;
   onEnterOptimize: () => void;
 }
 
@@ -39,6 +37,8 @@ export interface OptimizationRunnerState {
   optimizationStatus: OptimizationStatusResponse | null;
   optimizationHistory: OptimizationProgressResponse[];
   optimizationHistoryLoading: boolean;
+  optimizationHistoryHasMore: boolean;
+  optimizationTransportMode: JobTransportMode;
   optimizationEtaSeconds: number | null;
   optimizationError: string | null;
   optimizationStarting: boolean;
@@ -59,12 +59,94 @@ export interface OptimizationRunnerActions {
   setOptimizationResultTab: (value: OptimizationResultTab) => void;
   setOptimizationError: (value: string | null) => void;
   refreshOptimizationHistory: () => Promise<void>;
-  startOptimizationRun: () => Promise<void>;
+  loadMoreOptimizationHistory: () => Promise<void>;
+  startOptimizationRun: (overrideRequest?: BacktestRequest) => Promise<void>;
   cancelOptimizationRun: () => Promise<void>;
   exportOptimizationResult: () => Promise<void>;
   loadOptimizationJob: (jobId: string) => Promise<void>;
   restartOptimizationJob: (jobId: string) => Promise<void>;
-  fetchHistoryJobStatus: (jobId: string) => Promise<OptimizationStatusResponse>;
+  clearOptimizationHistory: (jobIds: string[]) => Promise<OptimizationHistoryClearResult>;
+  restoreOptimizationHistory: (jobIds: string[]) => Promise<OptimizationHistoryRestoreResult>;
+}
+
+const OPTIMIZATION_ACTIVE_JOB_STORAGE_KEY = "optimization_active_job_v1";
+const OPTIMIZATION_RESUME_ENABLED = (import.meta.env.VITE_JOB_RESUME_ENABLED ?? "1") !== "0";
+
+interface PersistedOptimizationJobContext {
+  job_id: string;
+  page: number;
+  page_size: number;
+  sort_by: string;
+  sort_order: SortOrder;
+  result_tab: OptimizationResultTab;
+  saved_at: number;
+}
+
+function normalizePersistedContext(raw: unknown): PersistedOptimizationJobContext | null {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const payload = raw as Partial<PersistedOptimizationJobContext>;
+  if (typeof payload.job_id !== "string" || !payload.job_id.trim()) {
+    return null;
+  }
+  const page = Number(payload.page);
+  const pageSize = Number(payload.page_size);
+  const sortBy = typeof payload.sort_by === "string" && payload.sort_by.trim() ? payload.sort_by.trim() : "robust_score";
+  const sortOrder = payload.sort_order === "asc" ? "asc" : "desc";
+  const resultTab: OptimizationResultTab =
+    payload.result_tab === "table" ||
+    payload.result_tab === "heatmap" ||
+    payload.result_tab === "curves" ||
+    payload.result_tab === "robustness"
+      ? payload.result_tab
+      : "table";
+  return {
+    job_id: payload.job_id.trim(),
+    page: Number.isFinite(page) && page >= 1 ? Math.floor(page) : 1,
+    page_size: Number.isFinite(pageSize) && pageSize >= 1 ? Math.floor(pageSize) : 20,
+    sort_by: sortBy,
+    sort_order: sortOrder,
+    result_tab: resultTab,
+    saved_at: Number.isFinite(Number(payload.saved_at)) ? Number(payload.saved_at) : Date.now()
+  };
+}
+
+function readPersistedOptimizationContext(): PersistedOptimizationJobContext | null {
+  if (!OPTIMIZATION_RESUME_ENABLED || typeof window === "undefined") {
+    return null;
+  }
+  try {
+    const raw = window.sessionStorage.getItem(OPTIMIZATION_ACTIVE_JOB_STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+    return normalizePersistedContext(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
+function writePersistedOptimizationContext(context: PersistedOptimizationJobContext): void {
+  if (!OPTIMIZATION_RESUME_ENABLED || typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.sessionStorage.setItem(OPTIMIZATION_ACTIVE_JOB_STORAGE_KEY, JSON.stringify(context));
+  } catch {
+    // ignore storage failures
+  }
+}
+
+function clearPersistedOptimizationContext(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.sessionStorage.removeItem(OPTIMIZATION_ACTIVE_JOB_STORAGE_KEY);
+  } catch {
+    // ignore storage failures
+  }
 }
 
 export function useOptimizationRunner({
@@ -74,15 +156,14 @@ export function useOptimizationRunner({
   optimizationConfigReady,
   optimizationPrecheck,
   showToast,
+  notifyCenter,
   onEnterOptimize
 }: Params): [OptimizationRunnerState, OptimizationRunnerActions] {
   const [optimizationJobId, setOptimizationJobId] = useState<string | null>(null);
   const [optimizationStatus, setOptimizationStatus] = useState<OptimizationStatusResponse | null>(null);
-  const [optimizationHistory, setOptimizationHistory] = useState<OptimizationProgressResponse[]>([]);
-  const [optimizationHistoryLoading, setOptimizationHistoryLoading] = useState(false);
+  const [optimizationTransportMode, setOptimizationTransportMode] = useState<JobTransportMode>("idle");
   const [optimizationEtaSeconds, setOptimizationEtaSeconds] = useState<number | null>(null);
   const [optimizationError, setOptimizationError] = useState<string | null>(null);
-  const [optimizationStarting, setOptimizationStarting] = useState(false);
 
   const [optimizationPage, setOptimizationPage] = useState(1);
   const [optimizationPageSize, setOptimizationPageSize] = useState(20);
@@ -90,26 +171,23 @@ export function useOptimizationRunner({
   const [optimizationSortOrder, setOptimizationSortOrder] = useState<SortOrder>("desc");
   const [optimizationResultTab, setOptimizationResultTab] = useState<OptimizationResultTab>("table");
 
-  const optimizationStartControllerRef = useRef<AbortController | null>(null);
-  const optimizationExportControllerRef = useRef<AbortController | null>(null);
   const lastProgressRef = useRef<{ value: number; ts: number } | null>(null);
   const notifiedTerminalRef = useRef<string | null>(null);
+  const refetchedRowsForJobRef = useRef<string | null>(null);
+  const resumeAttemptedRef = useRef(false);
 
-  const refreshOptimizationHistory = useCallback(async () => {
-    setOptimizationHistoryLoading(true);
-    try {
-      const rows = await fetchOptimizationHistory(50, { timeoutMs: 20_000, retries: 1 });
-      setOptimizationHistory(rows);
-    } catch {
-      // Keep existing history if refresh fails.
-    } finally {
-      setOptimizationHistoryLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    refreshOptimizationHistory();
-  }, [refreshOptimizationHistory]);
+  const {
+    optimizationHistory,
+    optimizationHistoryLoading,
+    optimizationHistoryHasMore,
+    refreshOptimizationHistory,
+    loadMoreOptimizationHistory,
+    clearOptimizationHistory,
+    restoreOptimizationHistory
+  } = useOptimizationHistoryState({
+    notifyCenter,
+    setOptimizationError
+  });
 
   useOptimizationPolling({
     optimizationJobId,
@@ -118,234 +196,61 @@ export function useOptimizationRunner({
     optimizationSortBy,
     optimizationSortOrder,
     optimizationResultTab,
-    setOptimizationStatus: (updater) => setOptimizationStatus(updater),
+    setOptimizationStatus,
     setOptimizationEtaSeconds,
     setOptimizationError,
+    setOptimizationTransportMode,
     refreshOptimizationHistory,
     showToast,
+    notifyCenter,
     lastProgressRef,
     notifiedTerminalRef
   });
 
-  useEffect(() => {
-    if (!optimizationJobId || optimizationResultTab !== "heatmap") {
-      return;
-    }
-    let cancelled = false;
-    fetchOptimizationHeatmap(optimizationJobId, { timeoutMs: 20_000, retries: 1 })
-      .then((payload) => {
-        if (cancelled) {
-          return;
-        }
-        setOptimizationStatus((prev) => {
-          if (!prev) {
-            return null;
-          }
-          return {
-            ...prev,
-            job: payload.job,
-            target: payload.target,
-            heatmap: payload.heatmap,
-            best_row: payload.best_row ?? prev.best_row
-          };
-        });
-      })
-      .catch(() => {
-        // keep previous status when heatmap refresh fails
-      });
+  useOptimizationResultData({
+    optimizationJobId,
+    optimizationStatus,
+    optimizationPage,
+    optimizationPageSize,
+    optimizationSortBy,
+    optimizationSortOrder,
+    optimizationResultTab,
+    setOptimizationStatus,
+    setOptimizationError,
+    refetchedRowsForJobRef
+  });
 
-    return () => {
-      cancelled = true;
-    };
-  }, [optimizationJobId, optimizationResultTab]);
-
-  const startOptimizationRun = useCallback(async () => {
-    if (!requestReady || !optimizationConfigReady) {
-      setOptimizationError("参数仍在初始化，请稍后重试。");
-      return;
-    }
-    if (optimizationPrecheck.errors.length > 0) {
-      setOptimizationError(optimizationPrecheck.errors[0]);
-      return;
-    }
-    if (request.data.source === "csv" && !request.data.csv_content) {
-      setOptimizationError("已选择 CSV 数据源，但尚未上传 CSV 内容。");
-      return;
-    }
-    setOptimizationStarting(true);
-    setOptimizationError(null);
-    setOptimizationEtaSeconds(null);
-    lastProgressRef.current = null;
-    optimizationStartControllerRef.current?.abort();
-    optimizationStartControllerRef.current = new AbortController();
-
-    try {
-      const payload: OptimizationRequest = {
-        base_strategy: request.strategy,
-        data: request.data,
-        optimization: optimizationConfig
-      };
-
-      const started = await startOptimization(payload, {
-        signal: optimizationStartControllerRef.current.signal,
-        timeoutMs: 60_000
-      });
-      notifiedTerminalRef.current = null;
-      setOptimizationJobId(started.job_id);
-      setOptimizationStatus(null);
-      setOptimizationPage(1);
-      setOptimizationResultTab("table");
-      await refreshOptimizationHistory();
-      onEnterOptimize();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "启动优化失败";
-      setOptimizationError(message);
-    } finally {
-      setOptimizationStarting(false);
-      optimizationStartControllerRef.current = null;
-    }
-  }, [
-    onEnterOptimize,
+  const {
+    optimizationStarting,
+    startOptimizationRun,
+    cancelOptimizationRun,
+    exportOptimizationResult,
+    loadOptimizationJob,
+    restartOptimizationJob
+  } = useOptimizationJobActions({
+    request,
+    requestReady,
     optimizationConfig,
     optimizationConfigReady,
-    optimizationPrecheck.errors,
-    optimizationPrecheck.warnings,
-    refreshOptimizationHistory,
-    request,
-    requestReady
-  ]);
-
-  const cancelOptimizationRun = useCallback(async () => {
-    if (!optimizationJobId) {
-      return;
-    }
-    try {
-      await cancelOptimization(optimizationJobId, { timeoutMs: 20_000 });
-      const status = await fetchOptimizationStatus(
-        optimizationJobId,
-        optimizationPage,
-        optimizationPageSize,
-        optimizationSortBy,
-        optimizationSortOrder,
-        { timeoutMs: 20_000, retries: 1 }
-      );
-      setOptimizationStatus(status);
-      setOptimizationEtaSeconds(null);
-      await refreshOptimizationHistory();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "取消优化失败";
-      setOptimizationError(message);
-    }
-  }, [
+    optimizationPrecheck,
+    showToast,
+    onEnterOptimize,
     optimizationJobId,
     optimizationPage,
     optimizationPageSize,
     optimizationSortBy,
     optimizationSortOrder,
-    refreshOptimizationHistory
-  ]);
-
-  const exportOptimizationResult = useCallback(async () => {
-    if (!optimizationJobId) {
-      return;
-    }
-    optimizationExportControllerRef.current?.abort();
-    optimizationExportControllerRef.current = new AbortController();
-
-    try {
-      const blob = await exportOptimizationCsv(optimizationJobId, optimizationSortBy, optimizationSortOrder, {
-        signal: optimizationExportControllerRef.current.signal,
-        timeoutMs: 60_000
-      });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.setAttribute("href", url);
-      link.setAttribute("download", `optimization-${optimizationJobId}.csv`);
-      link.click();
-      URL.revokeObjectURL(url);
-      showToast("优化结果 CSV 已导出。");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "导出优化结果失败";
-      setOptimizationError(message);
-    } finally {
-      optimizationExportControllerRef.current = null;
-    }
-  }, [optimizationJobId, optimizationSortBy, optimizationSortOrder, showToast]);
-
-  const loadOptimizationJob = useCallback(
-    async (jobId: string) => {
-      try {
-        const status = await fetchOptimizationStatus(
-          jobId,
-          optimizationPage,
-          optimizationPageSize,
-          optimizationSortBy,
-          optimizationSortOrder,
-          { timeoutMs: 30_000, retries: 1 }
-        );
-        setOptimizationJobId(jobId);
-        setOptimizationStatus(status);
-        setOptimizationError(null);
-        setOptimizationResultTab("table");
-        onEnterOptimize();
-        const terminal =
-          status.job.status === "completed" ||
-          status.job.status === "failed" ||
-          status.job.status === "cancelled";
-        if (terminal) {
-          setOptimizationEtaSeconds(null);
-        }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "加载历史任务失败";
-        setOptimizationError(message);
-      }
-    },
-    [
-      onEnterOptimize,
-      optimizationPage,
-      optimizationPageSize,
-      optimizationSortBy,
-      optimizationSortOrder
-    ]
-  );
-
-  const restartOptimizationJob = useCallback(
-    async (jobId: string) => {
-      try {
-        const started = await restartOptimization(jobId, { timeoutMs: 60_000 });
-        setOptimizationJobId(started.job_id);
-        setOptimizationStatus(null);
-        setOptimizationError(null);
-        setOptimizationPage(1);
-        setOptimizationResultTab("table");
-        setOptimizationEtaSeconds(null);
-        lastProgressRef.current = null;
-        notifiedTerminalRef.current = null;
-        showToast(`已重启优化任务，新任务ID: ${started.job_id.slice(0, 8)}`);
-        await refreshOptimizationHistory();
-        onEnterOptimize();
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "重启优化失败";
-        setOptimizationError(message);
-      }
-    },
-    [onEnterOptimize, refreshOptimizationHistory, showToast]
-  );
-
-  const fetchHistoryJobStatus = useCallback(async (jobId: string): Promise<OptimizationStatusResponse> => {
-    return fetchOptimizationStatus(jobId, 1, 100, "robust_score", "desc", {
-      timeoutMs: 30_000,
-      retries: 1
-    });
-  }, []);
-
-  useEffect(
-    () => () => {
-      optimizationStartControllerRef.current?.abort();
-      optimizationExportControllerRef.current?.abort();
-    },
-    []
-  );
+    refreshOptimizationHistory,
+    setOptimizationJobId,
+    setOptimizationStatus,
+    setOptimizationPage,
+    setOptimizationResultTab,
+    setOptimizationEtaSeconds,
+    setOptimizationError,
+    lastProgressRef,
+    notifiedTerminalRef,
+    refetchedRowsForJobRef
+  });
 
   const optimizationRunning =
     optimizationStarting ||
@@ -353,9 +258,60 @@ export function useOptimizationRunner({
       optimizationStatus?.job.status !== "failed" &&
       optimizationStatus?.job.status !== "cancelled" &&
       !!optimizationJobId);
+
   const totalOptimizationPages = optimizationStatus
     ? Math.max(1, Math.ceil(optimizationStatus.total_results / optimizationStatus.page_size))
     : 1;
+
+  useEffect(() => {
+    if (!OPTIMIZATION_RESUME_ENABLED || resumeAttemptedRef.current) {
+      return;
+    }
+    resumeAttemptedRef.current = true;
+    const persisted = readPersistedOptimizationContext();
+    if (!persisted) {
+      return;
+    }
+    setOptimizationJobId(persisted.job_id);
+    setOptimizationPage(persisted.page);
+    setOptimizationPageSize(persisted.page_size);
+    setOptimizationSortBy(persisted.sort_by);
+    setOptimizationSortOrder(persisted.sort_order);
+    setOptimizationResultTab(persisted.result_tab);
+    showToast(`已恢复优化跟踪 · ${persisted.job_id.slice(0, 8)}`);
+  }, [showToast]);
+
+  useEffect(() => {
+    if (!OPTIMIZATION_RESUME_ENABLED) {
+      return;
+    }
+    if (!optimizationJobId) {
+      clearPersistedOptimizationContext();
+      return;
+    }
+    const status = optimizationStatus?.job.status ?? null;
+    if (status === "completed" || status === "failed" || status === "cancelled") {
+      clearPersistedOptimizationContext();
+      return;
+    }
+    writePersistedOptimizationContext({
+      job_id: optimizationJobId,
+      page: optimizationPage,
+      page_size: optimizationPageSize,
+      sort_by: optimizationSortBy,
+      sort_order: optimizationSortOrder,
+      result_tab: optimizationResultTab,
+      saved_at: Date.now()
+    });
+  }, [
+    optimizationJobId,
+    optimizationPage,
+    optimizationPageSize,
+    optimizationSortBy,
+    optimizationSortOrder,
+    optimizationResultTab,
+    optimizationStatus?.job.status
+  ]);
 
   return [
     {
@@ -363,6 +319,8 @@ export function useOptimizationRunner({
       optimizationStatus,
       optimizationHistory,
       optimizationHistoryLoading,
+      optimizationHistoryHasMore,
+      optimizationTransportMode,
       optimizationEtaSeconds,
       optimizationError,
       optimizationStarting,
@@ -382,12 +340,14 @@ export function useOptimizationRunner({
       setOptimizationResultTab,
       setOptimizationError,
       refreshOptimizationHistory,
+      loadMoreOptimizationHistory,
       startOptimizationRun,
       cancelOptimizationRun,
       exportOptimizationResult,
       loadOptimizationJob,
       restartOptimizationJob,
-      fetchHistoryJobStatus
+      clearOptimizationHistory,
+      restoreOptimizationHistory
     }
   ];
 }

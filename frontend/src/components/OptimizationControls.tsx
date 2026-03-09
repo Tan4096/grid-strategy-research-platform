@@ -1,23 +1,72 @@
-import { useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import { OptimizationConfig } from "../types";
 import ComputeSection from "./optimization/ComputeSection";
 import RobustSection from "./optimization/RobustSection";
 import ScanSection from "./optimization/ScanSection";
 import StrategySection from "./optimization/StrategySection";
 import { estimateSweepCount } from "./optimization/shared";
+import { readPlain, STORAGE_KEYS, writePlain } from "../lib/storage";
 
 interface Props {
   config: OptimizationConfig;
   onChange: (next: OptimizationConfig) => void;
+  workspaceTabs?: ReactNode;
+  compact?: boolean;
+  asCard?: boolean;
 }
 
-export default function OptimizationControls({ config, onChange }: Props) {
-  const [sectionsOpen, setSectionsOpen] = useState({
-    scan: true,
-    strategy: false,
-    robust: false,
-    compute: false
+interface OptimizationControlSections {
+  scan: boolean;
+  strategy: boolean;
+  robust: boolean;
+  compute: boolean;
+}
+
+const DEFAULT_SECTIONS_OPEN: OptimizationControlSections = {
+  scan: true,
+  strategy: false,
+  robust: false,
+  compute: false
+};
+
+function normalizeSectionsOpen(raw: unknown): OptimizationControlSections | null {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+  const value = raw as Partial<OptimizationControlSections>;
+  if (
+    typeof value.scan !== "boolean" ||
+    typeof value.strategy !== "boolean" ||
+    typeof value.robust !== "boolean" ||
+    typeof value.compute !== "boolean"
+  ) {
+    return null;
+  }
+  return {
+    scan: value.scan,
+    strategy: value.strategy,
+    robust: value.robust,
+    compute: value.compute
+  };
+}
+
+export default function OptimizationControls({
+  config,
+  onChange,
+  workspaceTabs,
+  compact = false,
+  asCard = true
+}: Props) {
+  const [sectionsOpen, setSectionsOpen] = useState<OptimizationControlSections>(() => {
+    if (typeof window === "undefined") {
+      return DEFAULT_SECTIONS_OPEN;
+    }
+    return readPlain(STORAGE_KEYS.optimizationControlSections, normalizeSectionsOpen) ?? DEFAULT_SECTIONS_OPEN;
   });
+
+  useEffect(() => {
+    writePlain(STORAGE_KEYS.optimizationControlSections, sectionsOpen);
+  }, [sectionsOpen]);
 
   const usesTrialBudget = config.optimization_mode !== "grid";
   const leverageCount = estimateSweepCount(config.leverage);
@@ -44,7 +93,7 @@ export default function OptimizationControls({ config, onChange }: Props) {
       ? "Bayesian"
       : "Grid";
   const scanSummary = `${estimatedCombinations} 空间 · ${sampledCombinations} ${usesTrialBudget ? "试验预算" : "执行组合"}`;
-  const strategySummary = `${modeName} · 目标 ${config.target} · Anchor ${config.anchor_mode}`;
+  const strategySummary = `${modeName} · 目标 ${config.target}`;
   const robustSummary = `${config.walk_forward_enabled ? "Walk-forward 开启" : "Walk-forward 关闭"} · 最小交易 ${config.min_closed_trades}`;
   const computeSummary = `${config.max_workers} 进程 / 批 ${config.batch_size} / Chunk ${config.chunk_size}`;
 
@@ -71,37 +120,42 @@ export default function OptimizationControls({ config, onChange }: Props) {
       compute: false
     });
 
+  const containerClass = asCard ? "card fade-up space-y-3 p-2.5 sm:p-3" : "fade-up space-y-3";
+
   return (
-    <div className="card fade-up space-y-3 p-3">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <h2 className="text-base font-semibold text-slate-100">参数优化模块</h2>
-          <p className="mt-0.5 text-xs text-slate-400">
-            {config.optimization_mode === "random_pruned"
-              ? "Random Search + Early Pruning + Walk-forward"
-              : config.optimization_mode === "bayesian"
-              ? "Random Warm-up + Bayesian + Early Pruning + Walk-forward"
-              : "Grid Search + 并行计算 + Walk-forward"}
-          </p>
-          <p className="mt-0.5 text-[11px] text-slate-500">默认仅展开“扫描维度”，其余按需展开。</p>
+    <div className={containerClass} data-tour-id="optimization-config-panel">
+      {workspaceTabs && <div className="mb-1">{workspaceTabs}</div>}
+      {!compact && (
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <h2 className="text-base font-semibold text-slate-100">参数优化模块</h2>
+            <p className="mt-0.5 text-xs text-slate-400">
+              {config.optimization_mode === "random_pruned"
+                ? "Random Search + Early Pruning + Walk-forward"
+                : config.optimization_mode === "bayesian"
+                ? "Random Warm-up + Bayesian + Early Pruning + Walk-forward"
+                : "Grid Search + 并行计算 + Walk-forward"}
+            </p>
+            <p className="mt-0.5 text-[11px] text-slate-500">默认仅展开“扫描维度”，其余按需展开。</p>
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <button
+              type="button"
+              className="ui-btn ui-btn-secondary ui-btn-xs"
+              onClick={expandAll}
+            >
+              展开全部
+            </button>
+            <button
+              type="button"
+              className="ui-btn ui-btn-secondary ui-btn-xs"
+              onClick={collapseAll}
+            >
+              收起全部
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            className="rounded border border-slate-600 bg-slate-800/70 px-2 py-1 text-[11px] text-slate-200"
-            onClick={expandAll}
-          >
-            展开全部
-          </button>
-          <button
-            type="button"
-            className="rounded border border-slate-600 bg-slate-800/70 px-2 py-1 text-[11px] text-slate-200"
-            onClick={collapseAll}
-          >
-            收起全部
-          </button>
-        </div>
-      </div>
+      )}
 
       <ScanSection
         config={config}

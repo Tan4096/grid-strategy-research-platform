@@ -5,6 +5,7 @@ import { BacktestRequest } from "../types";
 interface Params {
   request: BacktestRequest;
   setRequest: Dispatch<SetStateAction<BacktestRequest>>;
+  enabled?: boolean;
 }
 
 interface Result {
@@ -13,21 +14,26 @@ interface Result {
   syncMarketParams: (sourceOverride?: BacktestRequest["data"]["source"], symbolOverride?: string) => Promise<void>;
 }
 
-export function useMarketSync({ request, setRequest }: Params): Result {
+export function useMarketSync({ request, setRequest, enabled = true }: Params): Result {
   const [marketParamsSyncing, setMarketParamsSyncing] = useState(false);
   const [marketParamsNote, setMarketParamsNote] = useState<string | null>(null);
   const marketParamsControllerRef = useRef<AbortController | null>(null);
 
   const syncMarketParams = useCallback(
     async (sourceOverride?: BacktestRequest["data"]["source"], symbolOverride?: string) => {
+      if (!enabled) {
+        setMarketParamsSyncing(false);
+        setMarketParamsNote("当前环境未启用交易所参数同步。");
+        return;
+      }
       const source = sourceOverride ?? request.data.source;
-      const symbol = (symbolOverride ?? request.data.symbol ?? "BTCUSDT").toUpperCase();
+      const symbol = (symbolOverride ?? request.data.symbol ?? "BTCUSDT").trim().toUpperCase();
 
-      if (source === "csv") {
+      if (!symbol || symbol.length < 6) {
         marketParamsControllerRef.current?.abort();
         marketParamsControllerRef.current = null;
         setMarketParamsSyncing(false);
-        setMarketParamsNote("CSV 数据源不自动同步交易所参数。");
+        setMarketParamsNote("请输入完整交易对（例如 BTCUSDT）。");
         return;
       }
 
@@ -72,15 +78,27 @@ export function useMarketSync({ request, setRequest }: Params): Result {
         }
       }
     },
-    [request.data.source, request.data.symbol, setRequest]
+    [enabled, request.data.source, request.data.symbol, setRequest]
   );
 
   useEffect(() => {
-    if (!request.data.source || !request.data.symbol) {
+    if (!enabled) {
+      marketParamsControllerRef.current?.abort();
+      marketParamsControllerRef.current = null;
+      setMarketParamsSyncing(false);
+      setMarketParamsNote("当前环境未启用交易所参数同步。");
       return;
     }
-    syncMarketParams(request.data.source, request.data.symbol);
-  }, [request.data.source, request.data.symbol, syncMarketParams]);
+    const source = request.data.source;
+    const symbol = (request.data.symbol ?? "").trim();
+    if (!source || !symbol) {
+      return;
+    }
+    if (symbol.length < 6) {
+      return;
+    }
+    syncMarketParams(source, symbol);
+  }, [enabled, request.data.source, request.data.symbol, syncMarketParams]);
 
   useEffect(
     () => () => {

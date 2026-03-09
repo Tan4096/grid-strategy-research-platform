@@ -57,7 +57,7 @@ export default function StrategyDiagnosisCard({ analysis }: Props) {
   const lines = buildNarrative(analysis);
 
   return (
-    <div className="card p-3 text-xs text-slate-200">
+    <div className="text-xs text-slate-200">
       <p className="font-semibold text-slate-100">策略结构诊断</p>
       <div className="mt-2 space-y-1 text-slate-300">
         {lines.map((line) => (
@@ -80,4 +80,3 @@ export default function StrategyDiagnosisCard({ analysis }: Props) {
     </div>
   );
 }
-

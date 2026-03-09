@@ -1,5 +1,5 @@
-import { AnchorMode, OptimizationConfig, OptimizationMode, OptimizationTarget } from "../../types";
-import { inputClass, labelClass, SectionCard, numberOrNull } from "./shared";
+import { OptimizationConfig, OptimizationMode, OptimizationTarget } from "../../types";
+import { inputClass, labelClass, SectionCard } from "./shared";
 
 interface Props {
   config: OptimizationConfig;
@@ -17,13 +17,6 @@ const TARGET_OPTIONS: Array<{ value: OptimizationTarget; label: string }> = [
   { value: "custom", label: "自定义评分函数" }
 ];
 
-const ANCHOR_OPTIONS: Array<{ value: AnchorMode; label: string }> = [
-  { value: "BACKTEST_START_PRICE", label: "回测起始收盘价" },
-  { value: "BACKTEST_AVG_PRICE", label: "回测区间均价" },
-  { value: "CURRENT_PRICE", label: "当前价格（数据末端）" },
-  { value: "CUSTOM_PRICE", label: "自定义价格" }
-];
-
 const OPTIMIZATION_MODE_OPTIONS: Array<{ value: OptimizationMode; label: string }> = [
   { value: "random_pruned", label: "Random Pruned（推荐）" },
   { value: "bayesian", label: "Bayesian" },
@@ -31,20 +24,19 @@ const OPTIMIZATION_MODE_OPTIONS: Array<{ value: OptimizationMode; label: string 
 ];
 
 export default function StrategySection({ config, onChange, open, onToggle, summary }: Props) {
-  const customAnchorRequired = config.anchor_mode === "CUSTOM_PRICE";
   const supportsPruning = config.optimization_mode !== "grid";
   const supportsBayesianOnly = config.optimization_mode === "bayesian";
 
   return (
     <SectionCard
       title="策略与目标"
-      description="先选优化模式、目标和 Anchor；高级搜索参数可按需展开"
+      description="先选优化模式和目标；高级搜索参数可按需展开"
       collapsible
       open={open}
       onToggle={onToggle}
       summary={summary}
     >
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-2">
         <div>
           <label className={labelClass()}>优化模式</label>
           <select
@@ -74,37 +66,7 @@ export default function StrategySection({ config, onChange, open, onToggle, summ
             ))}
           </select>
         </div>
-
-        <div>
-          <label className={labelClass()}>Anchor 价格基准</label>
-          <select
-            className={inputClass()}
-            value={config.anchor_mode}
-            onChange={(e) => onChange({ ...config, anchor_mode: e.target.value as AnchorMode })}
-          >
-            {ANCHOR_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        </div>
       </div>
-
-      {customAnchorRequired && (
-        <div className="mt-3 max-w-[360px]">
-          <label className={labelClass()}>自定义 Anchor 价格</label>
-          <input
-            className={inputClass()}
-            type="number"
-            step={0.01}
-            min={0}
-            value={config.custom_anchor_price ?? ""}
-            placeholder="请输入价格"
-            onChange={(e) => onChange({ ...config, custom_anchor_price: numberOrNull(e.target.value) })}
-          />
-        </div>
-      )}
 
       {config.target === "custom" && (
         <div className="mt-3">
@@ -122,7 +84,7 @@ export default function StrategySection({ config, onChange, open, onToggle, summ
         </div>
       )}
 
-      <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-2">
+      <div className="mt-3 grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-2">
         <label className="flex items-center gap-2 text-sm text-slate-300">
           <input
             type="checkbox"
@@ -145,7 +107,7 @@ export default function StrategySection({ config, onChange, open, onToggle, summ
       <details className="mt-3 rounded-md border border-slate-700/60 bg-slate-900/30 p-3">
         <summary className="cursor-pointer text-sm font-medium text-slate-200">高级搜索参数</summary>
 
-        <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-4">
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
           <div>
             <label className={labelClass()}>Warm-up 比例</label>
             <input
@@ -200,7 +162,7 @@ export default function StrategySection({ config, onChange, open, onToggle, summ
           </div>
         </div>
 
-        <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-3">
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-3">
           <label className="flex items-center gap-2 text-sm text-slate-300">
             <input
               type="checkbox"

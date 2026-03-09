@@ -1,5 +1,13 @@
-import { type MouseEvent as ReactMouseEvent, useCallback, useRef, useState } from "react";
+import {
+  type MouseEvent as ReactMouseEvent,
+  type TouchEvent as ReactTouchEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState
+} from "react";
 import { OptimizationProgressPoint } from "../types";
+import { useLayoutCardHeight } from "../hooks/useLayoutCardHeight";
 import StateBlock from "./ui/StateBlock";
 
 interface Props {
@@ -44,11 +52,22 @@ export default function OptimizationProgressChart({
   area = false,
   height = 320
 }: Props) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const headerRef = useRef<HTMLDivElement | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
+  const touchLongPressTimerRef = useRef<number | null>(null);
+  const touchLockedRef = useRef(false);
   const [hoverState, setHoverState] = useState<HoverState | null>(null);
+  const chartHeight = useLayoutCardHeight(containerRef, {
+    baseHeight: height,
+    minHeight: 190,
+    maxHeight: 1200,
+    reservedSpacePx: 10,
+    headerRef
+  });
 
   if (!data.length) {
-    return <StateBlock variant="empty" message="暂无进度曲线数据" minHeight={height} />;
+    return <StateBlock variant="empty" message="暂无进度曲线数据" minHeight={chartHeight} />;
   }
 
   const values = data.map((p) => Number(p.value));
@@ -62,7 +81,7 @@ export default function OptimizationProgressChart({
   const chartLeft = paddingLeft;
   const chartRight = WIDTH - paddingRight;
   const chartWidth = Math.max(chartRight - chartLeft, 60);
-  const innerHeight = Math.max(height - paddingTop - paddingBottom, 40);
+  const innerHeight = Math.max(chartHeight - paddingTop - paddingBottom, 40);
 
   const points = values.map((value, idx) => {
     const x = data.length > 1 ? chartLeft + (idx / (data.length - 1)) * chartWidth : chartLeft + chartWidth / 2;
@@ -91,8 +110,10 @@ export default function OptimizationProgressChart({
   const hoverPoint = hoverIndex !== null ? points[hoverIndex] : null;
   const hoverValue = hoverIndex !== null ? values[hoverIndex] : null;
   const hoverStep = hoverIndex !== null ? data[hoverIndex].step : null;
-  const tooltipWidthPx = 210;
-  const tooltipHeightPx = 72;
+  const isNarrowChart = typeof window !== "undefined" ? window.matchMedia("(max-width: 420px)").matches : false;
+  const xAxisOffset = isNarrowChart ? 15 : 17;
+  const tooltipWidthPx = isNarrowChart ? 180 : 210;
+  const tooltipHeightPx = isNarrowChart ? 64 : 72;
   const tooltipOffsetPx = 12;
   const tooltipXPx = hoverState
     ? Math.max(
@@ -107,8 +128,8 @@ export default function OptimizationProgressChart({
       )
     : 0;
 
-  const handlePointerMove = useCallback(
-    (event: ReactMouseEvent<SVGSVGElement>) => {
+  const updateHoverByClient = useCallback(
+    (clientX: number, clientY: number) => {
       if (!svgRef.current) {
         return;
       }
@@ -116,17 +137,17 @@ export default function OptimizationProgressChart({
       if (rect.width <= 0) {
         return;
       }
-      const scale = Math.min(rect.width / WIDTH, rect.height / height);
+      const scale = Math.min(rect.width / WIDTH, rect.height / chartHeight);
       const drawnWidth = WIDTH * scale;
       const offsetX = (rect.width - drawnWidth) / 2;
       const chartLeftPx = offsetX + (chartLeft / WIDTH) * drawnWidth;
       const chartWidthPx = (chartWidth / WIDTH) * drawnWidth;
-      const x = clamp(event.clientX - rect.left, chartLeftPx, chartLeftPx + chartWidthPx);
+      const x = clamp(clientX - rect.left, chartLeftPx, chartLeftPx + chartWidthPx);
       const ratio = chartWidthPx > 0 ? (x - chartLeftPx) / chartWidthPx : 0;
       const rawIndex = ratio * (data.length - 1);
       const idx = clamp(Math.round(rawIndex), 0, data.length - 1);
-      const rawX = clamp(event.clientX - rect.left, 0, rect.width);
-      const rawY = clamp(event.clientY - rect.top, 0, rect.height);
+      const rawX = clamp(clientX - rect.left, 0, rect.width);
+      const rawY = clamp(clientY - rect.top, 0, rect.height);
       setHoverState((prev) => {
         if (
           prev &&
@@ -145,17 +166,92 @@ export default function OptimizationProgressChart({
         };
       });
     },
-    [chartLeft, chartWidth, data.length, height]
+    [chartHeight, chartLeft, chartWidth, data.length]
   );
 
+  const clearTouchLongPressTimer = useCallback(() => {
+    if (touchLongPressTimerRef.current !== null) {
+      window.clearTimeout(touchLongPressTimerRef.current);
+      touchLongPressTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => () => clearTouchLongPressTimer(), [clearTouchLongPressTimer]);
+
+  const handlePointerMove = useCallback(
+    (event: ReactMouseEvent<SVGSVGElement>) => {
+      updateHoverByClient(event.clientX, event.clientY);
+    },
+    [updateHoverByClient]
+  );
+
+  const handleTouchStart = useCallback(
+    (event: ReactTouchEvent<SVGSVGElement>) => {
+      if (event.touches.length >= 2) {
+        clearTouchLongPressTimer();
+        touchLockedRef.current = false;
+        setHoverState(null);
+        return;
+      }
+      const touch = event.touches[0];
+      if (!touch) {
+        return;
+      }
+      clearTouchLongPressTimer();
+      touchLockedRef.current = false;
+      updateHoverByClient(touch.clientX, touch.clientY);
+      touchLongPressTimerRef.current = window.setTimeout(() => {
+        touchLockedRef.current = true;
+      }, 220);
+    },
+    [clearTouchLongPressTimer, updateHoverByClient]
+  );
+
+  const handleTouchMove = useCallback(
+    (event: ReactTouchEvent<SVGSVGElement>) => {
+      if (event.touches.length >= 2) {
+        clearTouchLongPressTimer();
+        touchLockedRef.current = false;
+        setHoverState(null);
+        return;
+      }
+      const touch = event.touches[0];
+      if (!touch) {
+        return;
+      }
+      if (touchLockedRef.current) {
+        event.preventDefault();
+      }
+      updateHoverByClient(touch.clientX, touch.clientY);
+    },
+    [clearTouchLongPressTimer, updateHoverByClient]
+  );
+
+  const handleTouchEnd = useCallback((event?: ReactTouchEvent<SVGSVGElement>) => {
+    clearTouchLongPressTimer();
+    if (event?.touches.length === 1) {
+      const touch = event.touches[0];
+      if (touch) {
+        touchLockedRef.current = false;
+        updateHoverByClient(touch.clientX, touch.clientY);
+        touchLongPressTimerRef.current = window.setTimeout(() => {
+          touchLockedRef.current = true;
+        }, 220);
+        return;
+      }
+    }
+    touchLockedRef.current = false;
+    setHoverState(null);
+  }, [clearTouchLongPressTimer, updateHoverByClient]);
+
   return (
-    <div className="card fade-up p-3">
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2 px-1">
+    <div ref={containerRef} className="card fade-up p-3">
+      <div ref={headerRef} className="mb-2 flex flex-wrap items-center justify-between gap-2 px-1">
         <div>
-          <p className="text-[15px] font-semibold text-slate-100">{title}</p>
+          <p className={`${isNarrowChart ? "text-sm" : "text-[15px]"} font-semibold text-slate-100`}>{title}</p>
           <p className="text-xs text-slate-400">起始步数: {startStep}，结束步数: {endStep}</p>
         </div>
-        <p className="text-xs text-slate-300">
+        <p className={`${isNarrowChart ? "w-full text-left" : "text-right"} text-xs text-slate-300`}>
           {yAxisLabel ?? "分数"}: {latest.toFixed(6)}
         </p>
       </div>
@@ -163,11 +259,15 @@ export default function OptimizationProgressChart({
       <div className="relative">
         <svg
           ref={svgRef}
-          viewBox={`0 0 ${WIDTH} ${height}`}
+          viewBox={`0 0 ${WIDTH} ${chartHeight}`}
           className="w-full cursor-crosshair"
-          style={{ height }}
+          style={{ height: chartHeight, touchAction: "pan-y pinch-zoom" }}
           onMouseMove={handlePointerMove}
           onMouseLeave={() => setHoverState(null)}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          onTouchCancel={handleTouchEnd}
         >
           {yTicks.map((line) => (
             <line
@@ -187,7 +287,7 @@ export default function OptimizationProgressChart({
           {yTicks.map((tick) => (
             <g key={`y-${tick.ratio}`}>
               <line x1={chartLeft - 4} x2={chartLeft} y1={tick.y} y2={tick.y} stroke="#475569" strokeWidth={1} />
-              <text x={chartLeft - 8} y={tick.y + 4.5} textAnchor="end" fontSize="12" fill="#94a3b8">
+              <text x={chartLeft - 8} y={tick.y + 4.5} textAnchor="end" fontSize={isNarrowChart ? "10.5" : "12"} fill="#94a3b8">
                 {formatAxisValue(tick.value)}
               </text>
             </g>
@@ -200,7 +300,7 @@ export default function OptimizationProgressChart({
             return (
               <g key={`x-${idx}`}>
                 <line x1={point.x} x2={point.x} y1={baselineY} y2={baselineY + 4} stroke="#475569" strokeWidth={1} />
-                <text x={point.x} y={baselineY + 17} textAnchor={anchor} fontSize="11.5" fill="#94a3b8">
+                <text x={point.x} y={baselineY + xAxisOffset} textAnchor={anchor} fontSize={isNarrowChart ? "10.5" : "11.5"} fill="#94a3b8">
                   {label}
                 </text>
               </g>
@@ -239,7 +339,9 @@ export default function OptimizationProgressChart({
 
         {hoverPoint && hoverValue !== null && hoverStep !== null && (
           <div
-            className="pointer-events-none absolute rounded border border-slate-600 bg-slate-950 px-2.5 py-1.5 text-xs text-slate-200 shadow-lg"
+            className={`pointer-events-none absolute rounded border border-slate-600 bg-slate-950 text-slate-200 shadow-lg ${
+              isNarrowChart ? "px-2 py-1 text-[11px]" : "px-2.5 py-1.5 text-xs"
+            }`}
             style={{
               left: `${tooltipXPx}px`,
               top: `${tooltipYPx}px`

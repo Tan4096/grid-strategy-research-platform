@@ -1,24 +1,26 @@
 import { Suspense, lazy, useMemo, useState } from "react";
 import { OptimizationRow, OptimizationStatusResponse, SortOrder } from "../../../types";
-import OptimizationResultsTable from "../../OptimizationResultsTable";
-import StateBlock from "../../ui/StateBlock";
-import { humanizeConstraintList } from "../constraints";
+import OptimizationBestSummaryCard from "./OptimizationBestSummaryCard";
+import MobileAnalysisSheet from "./MobileAnalysisSheet";
+import MobileResultsTableSheet from "./MobileResultsTableSheet";
+import ResultsCurvesPanel from "./ResultsCurvesPanel";
+import ResultsTablePanel from "./ResultsTablePanel";
+import {
+  filterOptimizationRows,
+  OptimizationResultTab,
+  useResultWorkspaceState
+} from "./useResultWorkspaceState";
+export type { OptimizationResultTab } from "./useResultWorkspaceState";
 
-const LineChart = lazy(() => import("../../LineChart"));
 const OptimizationHeatmap = lazy(() => import("../../OptimizationHeatmap"));
-const OptimizationProgressChart = lazy(() => import("../../OptimizationProgressChart"));
 const OptimizationRobustnessReport = lazy(() => import("../../OptimizationRobustnessReport"));
-
-export type OptimizationResultTab = "table" | "heatmap" | "curves" | "robustness";
-type TableViewMode = "table" | "cards";
-type TablePreset = "core" | "full";
 
 interface Props {
   optimizationStatus: OptimizationStatusResponse | null;
+  initialMargin: number;
   optimizationResultTab: OptimizationResultTab;
   onOptimizationResultTabChange: (tab: OptimizationResultTab) => void;
   onApplyOptimizationRow: (row: OptimizationRow) => void;
-  onCompareOptimizationRow: (row: OptimizationRow) => void;
   onCopyLiveParams: (row: OptimizationRow) => void;
   optimizationSortBy: string;
   onOptimizationSortByChange: (value: string) => void;
@@ -30,22 +32,16 @@ interface Props {
   totalOptimizationPages: number;
   onPrevPage: () => void;
   onNextPage: () => void;
+  isMobileViewport?: boolean;
+  onOpenHistory?: () => void;
 }
 
-const OPTIMIZATION_RESULT_TABS: Array<{ id: OptimizationResultTab; label: string }> = [
-  { id: "table", label: "结果表格" },
-  { id: "heatmap", label: "热力图" },
-  { id: "curves", label: "曲线分析" },
-  { id: "robustness", label: "稳健性报告" }
+const OPTIMIZATION_RESULT_TABS: Array<{ id: OptimizationResultTab; label: string; mobileLabel: string }> = [
+  { id: "table", label: "结果表格", mobileLabel: "表格" },
+  { id: "heatmap", label: "热力图", mobileLabel: "热力" },
+  { id: "curves", label: "曲线分析", mobileLabel: "曲线" },
+  { id: "robustness", label: "稳健性报告", mobileLabel: "报告" }
 ];
-
-function fmt(value: number | null, digits = 2): string {
-  if (value === null || !Number.isFinite(value)) {
-    return "-";
-  }
-  return value.toFixed(digits);
-}
-
 function ChartFallback({ minHeight = "220px" }: { minHeight?: string }) {
   return (
     <div className="card flex items-center justify-center p-4 text-sm text-slate-400" style={{ minHeight }}>
@@ -54,12 +50,19 @@ function ChartFallback({ minHeight = "220px" }: { minHeight?: string }) {
   );
 }
 
+function fmt(value: number | null, digits = 2): string {
+  if (value === null || !Number.isFinite(value)) {
+    return "-";
+  }
+  return value.toFixed(digits);
+}
+
 export default function OptimizationResultsWorkspace({
   optimizationStatus,
+  initialMargin,
   optimizationResultTab,
   onOptimizationResultTabChange,
   onApplyOptimizationRow,
-  onCompareOptimizationRow,
   onCopyLiveParams,
   optimizationSortBy,
   onOptimizationSortByChange,
@@ -70,290 +73,307 @@ export default function OptimizationResultsWorkspace({
   optimizationPage,
   totalOptimizationPages,
   onPrevPage,
-  onNextPage
+  onNextPage,
+  isMobileViewport = false,
+  onOpenHistory
 }: Props) {
-  const [showPassedOnly, setShowPassedOnly] = useState(true);
-  const [showPositiveOnly, setShowPositiveOnly] = useState(true);
-  const [diagnosticMode, setDiagnosticMode] = useState(false);
-  const [tableViewMode, setTableViewMode] = useState<TableViewMode>("table");
-  const [tablePreset, setTablePreset] = useState<TablePreset>("core");
+  const [mobileResultsTableOpen, setMobileResultsTableOpen] = useState(false);
+  const [mobileAnalysisOpen, setMobileAnalysisOpen] = useState(false);
+  const {
+    isMobile,
+    showPassedOnly,
+    setShowPassedOnly,
+    showPositiveOnly,
+    setShowPositiveOnly,
+    diagnosticMode,
+    setDiagnosticMode,
+    tableViewMode,
+    setTableViewPreference,
+    tablePreset,
+    columnVisibility,
+    applyColumnPreset,
+    toggleColumnVisibility,
+    curveHoverRatio,
+    setCurveHoverRatio,
+    columnKeys
+  } = useResultWorkspaceState({ optimizationResultTab });
+
+  const allRows = useMemo(
+    () => (optimizationStatus && Array.isArray(optimizationStatus.rows) ? optimizationStatus.rows : []),
+    [optimizationStatus]
+  );
 
   const filteredRows = useMemo(() => {
     if (!optimizationStatus) {
       return [];
     }
-    let rows = optimizationStatus.rows;
-    if (diagnosticMode) {
-      return rows;
-    }
-    if (showPassedOnly) {
-      rows = rows.filter((row) => row.passes_constraints);
-    }
-    if (showPositiveOnly) {
-      rows = rows.filter((row) => row.total_return_usdt > 0);
-    }
-    return rows;
-  }, [optimizationStatus, showPassedOnly, showPositiveOnly, diagnosticMode]);
+    return filterOptimizationRows(allRows, { showPassedOnly, showPositiveOnly, diagnosticMode });
+  }, [optimizationStatus, allRows, showPassedOnly, showPositiveOnly, diagnosticMode]);
 
-  if (!optimizationStatus) {
-    return <StateBlock variant="empty" message="暂无优化结果。" minHeight={160} />;
+  const hasStatus = Boolean(optimizationStatus);
+  const bestRow = optimizationStatus?.best_row ?? null;
+  const bestEquityCurve = Array.isArray(optimizationStatus?.best_equity_curve)
+    ? optimizationStatus.best_equity_curve
+    : [];
+  const bestScoreProgression = Array.isArray(optimizationStatus?.best_score_progression)
+    ? optimizationStatus.best_score_progression
+    : [];
+  const convergenceCurveData = Array.isArray(optimizationStatus?.convergence_curve_data)
+    ? optimizationStatus.convergence_curve_data
+    : [];
+  const bestScoreCurve = bestScoreProgression.map((point) => ({
+    timestamp: `步骤 ${point.step}`,
+    value: point.value
+  }));
+  const convergenceCurve = convergenceCurveData.map((point) => ({
+    timestamp: `步骤 ${point.step}`,
+    value: point.value
+  }));
+  const heatmap = Array.isArray(optimizationStatus?.heatmap) ? optimizationStatus.heatmap : [];
+  const safeTotalResults =
+    typeof optimizationStatus?.total_results === "number" && Number.isFinite(optimizationStatus.total_results)
+      ? optimizationStatus.total_results
+      : allRows.length;
+  const safeTotalPages = Math.max(1, Number.isFinite(totalOptimizationPages) ? totalOptimizationPages : 1);
+  const safePage = Math.min(Math.max(1, optimizationPage), safeTotalPages);
+  const mobilePreviewRows = filteredRows.slice(0, 5);
+  const showMobileRunningHint =
+    optimizationStatus?.job.status === "running" || optimizationStatus?.job.status === "pending";
+
+  const tableContent = hasStatus ? (
+    <ResultsTablePanel
+      isMobile={isMobile}
+      filteredRowsCount={filteredRows.length}
+      filteredRows={filteredRows}
+      onApplyOptimizationRow={onApplyOptimizationRow}
+      optimizationSortBy={optimizationSortBy}
+      onOptimizationSortByChange={onOptimizationSortByChange}
+      optimizationSortOrder={optimizationSortOrder}
+      onOptimizationSortOrderChange={onOptimizationSortOrderChange}
+      optimizationPageSize={optimizationPageSize}
+      onOptimizationPageSizeChange={onOptimizationPageSizeChange}
+      tableViewMode={tableViewMode}
+      onTableViewPreferenceChange={setTableViewPreference}
+      tablePreset={tablePreset}
+      applyColumnPreset={applyColumnPreset}
+      safeTotalResults={safeTotalResults}
+      safePage={safePage}
+      safeTotalPages={safeTotalPages}
+      showPassedOnly={showPassedOnly}
+      onShowPassedOnlyChange={setShowPassedOnly}
+      showPositiveOnly={showPositiveOnly}
+      onShowPositiveOnlyChange={setShowPositiveOnly}
+      diagnosticMode={diagnosticMode}
+      onDiagnosticModeChange={setDiagnosticMode}
+      columnKeys={columnKeys}
+      columnVisibility={columnVisibility}
+      toggleColumnVisibility={toggleColumnVisibility}
+      optimizationPage={optimizationPage}
+      onPrevPage={onPrevPage}
+      onNextPage={onNextPage}
+    />
+  ) : (
+    <div className="flex min-h-[160px] items-center justify-center rounded-xl border border-slate-700/70 p-4 text-sm text-slate-300">
+      暂无优化结果。
+    </div>
+  );
+
+  let advancedContent;
+  if (!hasStatus) {
+    advancedContent = (
+      <div className="flex min-h-[120px] items-center justify-center rounded-xl border border-slate-700/70 p-4 text-sm text-slate-300">
+        暂无可分析数据。
+      </div>
+    );
+  } else if (optimizationResultTab === "heatmap") {
+    advancedContent = (
+      <Suspense fallback={<ChartFallback minHeight="340px" />}>
+        <OptimizationHeatmap data={heatmap} />
+      </Suspense>
+    );
+  } else if (optimizationResultTab === "curves") {
+    advancedContent = (
+      <ResultsCurvesPanel
+        bestScoreCurve={bestScoreCurve}
+        initialMargin={initialMargin}
+        convergenceCurve={convergenceCurve}
+        bestEquityCurve={bestEquityCurve}
+        curveHoverRatio={curveHoverRatio}
+        onCurveHoverRatioChange={setCurveHoverRatio}
+      />
+    );
+  } else if (optimizationResultTab === "robustness") {
+    advancedContent = (
+      <Suspense fallback={<ChartFallback minHeight="340px" />}>
+        <OptimizationRobustnessReport rows={allRows} bestRow={bestRow} />
+      </Suspense>
+    );
+  } else {
+    advancedContent = (
+      <p className="rounded border border-slate-700/70 bg-slate-900/25 p-2 text-xs text-slate-400">
+        默认展示核心表格。需要更深入分析时，选择热力图/曲线/报告。
+      </p>
+    );
   }
 
-  const bestRow = optimizationStatus.best_row;
+  let desktopContent;
+  if (optimizationResultTab === "table") {
+    desktopContent = tableContent;
+  } else {
+    desktopContent = advancedContent;
+  }
+
+  if (isMobileViewport) {
+    return (
+      <div className="space-y-3">
+        {showMobileRunningHint && (
+          <div className="card-sub border border-amber-400/35 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+            当前任务仍在运行，可先查看已有结果，完成后会自动刷新。
+          </div>
+        )}
+        <OptimizationBestSummaryCard
+          bestRow={bestRow}
+          onApplyOptimizationRow={onApplyOptimizationRow}
+          onCopyLiveParams={onCopyLiveParams}
+        />
+        <section className="card space-y-3 p-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-semibold text-slate-200">核心结果</p>
+            <p className="text-[11px] text-slate-400">首屏仅保留前 5 条</p>
+          </div>
+          {mobilePreviewRows.length > 0 ? (
+            <div className="space-y-2">
+              {mobilePreviewRows.map((row) => (
+                <article key={row.row_id} className="card-sub space-y-2 border border-slate-700/60 bg-slate-900/30 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-100">组合 #{row.row_id}</p>
+                      <p className="mt-1 text-xs text-slate-300">
+                        稳健评分 {fmt(row.robust_score, 3)} · 总收益 {fmt(row.total_return_usdt, 2)} USDT
+                      </p>
+                      <p className="mt-1 text-xs text-slate-400">
+                        回撤 {fmt(row.max_drawdown_pct, 2)}% · 杠杆 {fmt(row.leverage, 2)} 倍 · 网格 {row.grids}
+                      </p>
+                    </div>
+                    <span
+                      className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+                        row.passes_constraints
+                          ? "border-emerald-400/35 bg-emerald-500/10 text-emerald-200"
+                          : "border-amber-400/35 bg-amber-500/10 text-amber-200"
+                      }`}
+                    >
+                      {row.passes_constraints ? "通过" : "未通过"}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      className="ui-btn ui-btn-secondary ui-btn-xs w-full"
+                      onClick={() => onApplyOptimizationRow(row)}
+                    >
+                      应用
+                    </button>
+                    <button
+                      type="button"
+                      className="ui-btn ui-btn-secondary ui-btn-xs w-full"
+                      onClick={() => onCopyLiveParams(row)}
+                    >
+                      复制
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="flex min-h-[120px] items-center justify-center rounded-xl border border-slate-700/70 p-4 text-sm text-slate-300">
+              暂无优化结果。
+            </div>
+          )}
+          <div className="grid grid-cols-1 gap-2">
+            <button
+              type="button"
+              className="ui-btn ui-btn-secondary w-full"
+              onClick={() => setMobileResultsTableOpen(true)}
+            >
+              查看全部结果
+            </button>
+            <button
+              type="button"
+              className="ui-btn ui-btn-secondary w-full"
+              onClick={() => {
+                if (optimizationResultTab === "table") {
+                  onOptimizationResultTabChange("curves");
+                }
+                setMobileAnalysisOpen(true);
+              }}
+            >
+              更多分析
+            </button>
+            {onOpenHistory && (
+              <button
+                type="button"
+                className="ui-btn ui-btn-secondary w-full"
+                onClick={onOpenHistory}
+                data-tour-id="optimization-history-entry"
+              >
+                查看历史
+              </button>
+            )}
+          </div>
+        </section>
+        <MobileResultsTableSheet
+          open={mobileResultsTableOpen}
+          onClose={() => setMobileResultsTableOpen(false)}
+        >
+          {tableContent}
+        </MobileResultsTableSheet>
+        <MobileAnalysisSheet
+          open={mobileAnalysisOpen}
+          onClose={() => setMobileAnalysisOpen(false)}
+          activeTab={optimizationResultTab === "table" ? "curves" : optimizationResultTab}
+          onTabChange={onOptimizationResultTabChange}
+        >
+          {advancedContent}
+        </MobileAnalysisSheet>
+      </div>
+    );
+  }
 
   return (
-    <>
-      {bestRow && (
-        <div className="card p-3 text-xs text-slate-200">
-          <p className="font-semibold text-slate-100">最优参数摘要</p>
-          <p className="mt-1">
-            杠杆 {fmt(bestRow.leverage, 2)}x · 网格 {bestRow.grids} · LOWER {fmt(bestRow.lower_price, 2)} · UPPER {fmt(bestRow.upper_price, 2)} · STOP{" "}
-            {fmt(bestRow.stop_price, 2)}
-          </p>
-          <p className="mt-1">
-            收益 {fmt(bestRow.total_return_usdt, 2)} · 回撤 {fmt(bestRow.max_drawdown_pct, 2)}% · 稳健评分 {fmt(bestRow.robust_score, 4)}
-          </p>
-          {!bestRow.passes_constraints && (
-            <p className="mt-1 text-slate-300">未通过约束: {humanizeConstraintList(bestRow.constraint_violations).join(" / ")}</p>
-          )}
-          <div className="mt-2 flex flex-wrap gap-2">
+    <div className={isMobileViewport ? "space-y-3" : "space-y-5 sm:space-y-6"}>
+      <OptimizationBestSummaryCard
+        bestRow={bestRow}
+        onApplyOptimizationRow={onApplyOptimizationRow}
+        onCopyLiveParams={onCopyLiveParams}
+      />
+
+      <section className="card space-y-3 p-3">
+        {isMobileViewport && onOpenHistory && (
+          <div className="flex items-center justify-end">
             <button
               type="button"
-              className="rounded border border-slate-600 bg-slate-800/70 px-2 py-1 text-[11px] font-semibold text-slate-100 transition hover:bg-slate-700"
-              onClick={() => onApplyOptimizationRow(bestRow)}
+              className="ui-btn ui-btn-secondary ui-btn-xs"
+              onClick={onOpenHistory}
+              data-tour-id="optimization-history-entry"
             >
-              应用到回测模块
-            </button>
-            <button
-              type="button"
-              className="rounded border border-cyan-500/50 bg-cyan-500/10 px-2 py-1 text-[11px] font-semibold text-cyan-100 transition hover:bg-cyan-500/20"
-              onClick={() => onCompareOptimizationRow(bestRow)}
-            >
-              对比回测
-            </button>
-            <button
-              type="button"
-              className="rounded border border-slate-600 bg-slate-800/70 px-2 py-1 text-[11px] font-semibold text-slate-200 transition hover:bg-slate-700"
-              onClick={() => onCopyLiveParams(bestRow)}
-            >
-              复制 JSON 参数
+              查看历史
             </button>
           </div>
-        </div>
-      )}
-
-      <div className="card p-3">
-        <div className="inline-flex flex-wrap items-center gap-2 rounded-md border border-slate-700/70 bg-slate-950/40 p-1">
+        )}
+        <div className="ui-tab-group">
           {OPTIMIZATION_RESULT_TABS.map((tab) => (
             <button
               key={tab.id}
               type="button"
-              className={`rounded px-3 py-1.5 text-xs font-semibold transition ${
-                optimizationResultTab === tab.id
-                  ? "border border-slate-300/70 bg-slate-200/20 text-slate-100"
-                  : "border border-transparent text-slate-300 hover:border-slate-600 hover:bg-slate-800/80"
-              }`}
+              className={`ui-tab ${optimizationResultTab === tab.id ? "is-active" : ""}`}
               onClick={() => onOptimizationResultTabChange(tab.id)}
             >
-              {tab.label}
+              {isMobile ? tab.mobileLabel : tab.label}
             </button>
           ))}
         </div>
-      </div>
-
-      {optimizationResultTab === "table" && (
-        <>
-          <div className="card p-3">
-            <div className="grid grid-cols-1 gap-3 xl:grid-cols-[1fr_1fr_auto_auto_auto_auto]">
-              <div>
-                <label className="mb-1 block text-xs text-slate-400">排序字段</label>
-                <select
-                  className="w-full rounded-md border border-slate-700 bg-slate-950/70 px-2 py-2 text-sm text-slate-100"
-                  value={optimizationSortBy}
-                  onChange={(e) => onOptimizationSortByChange(e.target.value)}
-                >
-                  <option value="robust_score">robust_score</option>
-                  <option value="score">score</option>
-                  <option value="overfit_penalty">overfit_penalty</option>
-                  <option value="total_return_usdt">total_return_usdt</option>
-                  <option value="max_drawdown_pct">max_drawdown_pct</option>
-                  <option value="sharpe_ratio">sharpe_ratio</option>
-                  <option value="return_drawdown_ratio">return_drawdown_ratio</option>
-                  <option value="validation_score">validation_score</option>
-                  <option value="validation_total_return_usdt">validation_total_return_usdt</option>
-                </select>
-              </div>
-              <div>
-                <label className="mb-1 block text-xs text-slate-400">排序方向</label>
-                <select
-                  className="w-full rounded-md border border-slate-700 bg-slate-950/70 px-2 py-2 text-sm text-slate-100"
-                  value={optimizationSortOrder}
-                  onChange={(e) => onOptimizationSortOrderChange(e.target.value as SortOrder)}
-                >
-                  <option value="desc">DESC</option>
-                  <option value="asc">ASC</option>
-                </select>
-              </div>
-              <div>
-                <label className="mb-1 block text-xs text-slate-400">每页</label>
-                <select
-                  className="w-full rounded-md border border-slate-700 bg-slate-950/70 px-2 py-2 text-sm text-slate-100"
-                  value={optimizationPageSize}
-                  onChange={(e) => onOptimizationPageSizeChange(Number(e.target.value))}
-                >
-                  <option value={10}>10</option>
-                  <option value={20}>20</option>
-                  <option value={50}>50</option>
-                  <option value={100}>100</option>
-                </select>
-              </div>
-              <div>
-                <label className="mb-1 block text-xs text-slate-400">视图</label>
-                <select
-                  className="w-full rounded-md border border-slate-700 bg-slate-950/70 px-2 py-2 text-sm text-slate-100"
-                  value={tableViewMode}
-                  onChange={(e) => setTableViewMode(e.target.value as TableViewMode)}
-                >
-                  <option value="table">表格</option>
-                  <option value="cards">卡片</option>
-                </select>
-              </div>
-              <div>
-                <label className="mb-1 block text-xs text-slate-400">列预设</label>
-                <select
-                  className="w-full rounded-md border border-slate-700 bg-slate-950/70 px-2 py-2 text-sm text-slate-100"
-                  value={tablePreset}
-                  onChange={(e) => setTablePreset(e.target.value as TablePreset)}
-                >
-                  <option value="core">核心</option>
-                  <option value="full">诊断</option>
-                </select>
-              </div>
-              <div className="flex items-end">
-                <p className="text-xs text-slate-400">
-                  {optimizationStatus.total_results} 组 · 第 {optimizationPage}/{totalOptimizationPages} 页
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-300">
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={showPassedOnly}
-                  disabled={diagnosticMode}
-                  onChange={(e) => setShowPassedOnly(e.target.checked)}
-                />
-                仅显示通过约束
-              </label>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={showPositiveOnly}
-                  disabled={diagnosticMode}
-                  onChange={(e) => setShowPositiveOnly(e.target.checked)}
-                />
-                仅显示正收益
-              </label>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={diagnosticMode}
-                  onChange={(e) => setDiagnosticMode(e.target.checked)}
-                />
-                诊断模式
-              </label>
-            </div>
-          </div>
-
-          {filteredRows.length > 0 ? (
-            <OptimizationResultsTable
-              rows={filteredRows}
-              onApply={onApplyOptimizationRow}
-              onCompare={onCompareOptimizationRow}
-              viewMode={tableViewMode}
-              columnPreset={tablePreset}
-            />
-          ) : (
-            <StateBlock variant="empty" message="当前筛选条件下暂无结果。" minHeight={120} />
-          )}
-
-          <div className="flex items-center justify-between">
-            <button
-              type="button"
-              className="rounded border border-slate-700 px-3 py-1 text-xs text-slate-200 disabled:opacity-40"
-              disabled={optimizationPage <= 1}
-              onClick={onPrevPage}
-            >
-              上一页
-            </button>
-            <button
-              type="button"
-              className="rounded border border-slate-700 px-3 py-1 text-xs text-slate-200 disabled:opacity-40"
-              disabled={optimizationPage >= totalOptimizationPages}
-              onClick={onNextPage}
-            >
-              下一页
-            </button>
-          </div>
-        </>
-      )}
-
-      {optimizationResultTab === "heatmap" && (
-        <Suspense fallback={<ChartFallback minHeight="400px" />}>
-          <OptimizationHeatmap data={optimizationStatus.heatmap} />
-        </Suspense>
-      )}
-
-      {optimizationResultTab === "curves" && (
-        <div className="space-y-4">
-          {(optimizationStatus.best_score_progression.length > 0 || optimizationStatus.convergence_curve_data.length > 0) && (
-            <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-              {optimizationStatus.best_score_progression.length > 0 && (
-                <Suspense fallback={<ChartFallback minHeight="320px" />}>
-                  <OptimizationProgressChart
-                    title="Best Score Progression"
-                    data={optimizationStatus.best_score_progression}
-                    color="#22c55e"
-                    yAxisLabel="score"
-                  />
-                </Suspense>
-              )}
-              {optimizationStatus.convergence_curve_data.length > 0 && (
-                <Suspense fallback={<ChartFallback minHeight="320px" />}>
-                  <OptimizationProgressChart
-                    title="Convergence Curve"
-                    data={optimizationStatus.convergence_curve_data}
-                    color="#38bdf8"
-                    yAxisLabel="score"
-                    area
-                  />
-                </Suspense>
-              )}
-            </div>
-          )}
-
-          {optimizationStatus.best_equity_curve.length > 0 ? (
-            <Suspense fallback={<ChartFallback minHeight="340px" />}>
-              <LineChart
-                title="最优参数收益曲线"
-                data={optimizationStatus.best_equity_curve}
-                color="#22c55e"
-                yAxisLabel="USDT"
-                area
-              />
-            </Suspense>
-          ) : (
-            <StateBlock variant="empty" message="暂无最优参数收益曲线" minHeight={140} />
-          )}
-        </div>
-      )}
-
-      {optimizationResultTab === "robustness" && (
-        <Suspense fallback={<ChartFallback minHeight="400px" />}>
-          <OptimizationRobustnessReport rows={optimizationStatus.rows} bestRow={optimizationStatus.best_row} />
-        </Suspense>
-      )}
-    </>
+        {desktopContent}
+      </section>
+    </div>
   );
 }

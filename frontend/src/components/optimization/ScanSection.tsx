@@ -64,7 +64,7 @@ export default function ScanSection({
         <p className="text-xs text-slate-300">超出上限，请缩小范围或开启自动抽样</p>
       )}
 
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-2">
         <SweepEditor
           title={sweepTitle("leverage")}
           sweep={config.leverage}

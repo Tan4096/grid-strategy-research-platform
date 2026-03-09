@@ -41,6 +41,7 @@ export const FALLBACK_DEFAULTS: BacktestRequest = {
     margin: 2000,
     stop_loss: 59000,
     use_base_position: false,
+    strict_risk_control: true,
     reopen_after_stop: true,
     fee_rate: 0.0004,
     maker_fee_rate: 0.0002,
@@ -52,7 +53,8 @@ export const FALLBACK_DEFAULTS: BacktestRequest = {
     use_mark_price_for_liquidation: false,
     price_tick_size: 0.1,
     quantity_step_size: 0.0001,
-    min_notional: 5
+    min_notional: 5,
+    max_allowed_loss_usdt: null
   },
   data: {
     source: "binance",
@@ -60,8 +62,7 @@ export const FALLBACK_DEFAULTS: BacktestRequest = {
     interval: "1h",
     lookback_days: 14,
     start_time: fallbackStartTime,
-    end_time: fallbackEndTime,
-    csv_content: null
+    end_time: fallbackEndTime
   }
 };
 
@@ -96,12 +97,13 @@ export const DEFAULT_OPTIMIZATION_CONFIG: OptimizationConfig = {
     values: null
   },
   optimize_base_position: false,
-  anchor_mode: "BACKTEST_START_PRICE",
+  anchor_mode: "CURRENT_PRICE",
   custom_anchor_price: null,
   target: "return_drawdown_ratio",
   custom_score_expr: "total_return_usdt / max(max_drawdown_pct, 1)",
   min_closed_trades: 4,
   max_drawdown_pct_limit: null,
+  max_allowed_loss_usdt: null,
   require_positive_return: true,
   robust_validation_weight: 0.7,
   robust_gap_penalty: 0.2,
