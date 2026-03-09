@@ -21,6 +21,13 @@ files = [
   "backend/app/core/readiness.py",
   "backend/app/tasks/arq_queue.py",
   "backend/app/services/live_snapshot_http.py",
+  "backend/app/services/live_snapshot_aggregate.py",
+  "backend/app/services/live_snapshot_pnl.py",
+  "backend/app/services/live_snapshot_collectors.py",
+  "backend/app/services/live_snapshot_clients.py",
+  "backend/app/services/live_snapshot_support.py",
+  "backend/app/services/live_snapshot_bindings.py",
+  "backend/app/services/live_snapshot.py",
   "backend/app/services/live_snapshot_types.py",
 ]
 ignore_missing_imports = true

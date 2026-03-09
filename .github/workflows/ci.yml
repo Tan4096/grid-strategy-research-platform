@@ -53,7 +53,7 @@ jobs:
       - name: Lint backend
         env:
           PYTHONPATH: .
-        run: python -m ruff check app/api app/core app/tasks/arq_queue.py
+        run: python -m ruff check app/api app/core app/tasks/arq_queue.py app/services/live_snapshot*.py
 
       - name: Type-check backend
         env:
@@ -88,8 +88,14 @@ jobs:
       - name: Generate API types
         run: npm run gen:api-types
 
-      - name: Check generated API types drift
-        run: git diff --exit-code -- src/lib/api.generated.ts
+      - name: Check generated API contract drift
+        run: git diff --exit-code -- openapi.json src/lib/api.generated.ts
+
+      - name: Check generated config docs drift
+        working-directory: .
+        run: |
+          make config-docs
+          git diff --exit-code -- deploy/.env.example deploy/CONFIG_REFERENCE.md README.md deploy/README.md backend/README.md
 
       - name: Lint frontend
         run: npm run lint

@@ -2,7 +2,7 @@ SHELL := /bin/bash
 BACKEND_PYTHON ?= backend/.venv/bin/python
 FRONTEND_DIR := frontend
 
-.PHONY: dev doctor env-example config-docs test build e2e backend-test backend-lint backend-typecheck frontend-test frontend-typecheck frontend-build frontend-lint frontend-contract frontend-openapi frontend-contract-sync oss-check review-surface
+.PHONY: dev doctor env-example config-docs docs-drift test build e2e backend-test backend-lint backend-typecheck frontend-test frontend-typecheck frontend-build frontend-lint frontend-contract frontend-openapi frontend-contract-sync oss-check review-surface
 
 dev:
 	./start-dev.sh
@@ -18,7 +18,7 @@ config-docs: env-example
 	python3 scripts/render_readme_config_snippets.py
 
 backend-lint:
-	$(BACKEND_PYTHON) -m ruff check backend/app/api backend/app/core backend/app/tasks/arq_queue.py
+	$(BACKEND_PYTHON) -m ruff check backend/app/api backend/app/core backend/app/tasks/arq_queue.py backend/app/services/live_snapshot*.py
 
 backend-typecheck:
 	$(BACKEND_PYTHON) -m mypy
@@ -39,7 +39,11 @@ frontend-lint:
 	cd $(FRONTEND_DIR) && npm run lint
 
 frontend-contract:
-	cd $(FRONTEND_DIR) && npm run gen:api-types && git diff --exit-code -- src/lib/api.generated.ts
+	cd $(FRONTEND_DIR) && npm run gen:api-types && git diff --exit-code -- openapi.json src/lib/api.generated.ts
+
+docs-drift:
+	make config-docs
+	git diff --exit-code -- deploy/.env.example deploy/CONFIG_REFERENCE.md README.md deploy/README.md backend/README.md
 
 frontend-test:
 	cd $(FRONTEND_DIR) && npm run test:unit
