@@ -9,6 +9,11 @@ from typing import Any, Dict, List, Optional, Tuple
 from app.core.optimization_schemas import AnchorMode, OptimizationConfig, SweepRange
 from app.core.schemas import Candle, StrategyConfig
 from app.optimizer.bayesian_optimizer import BayesianTrialOutcome
+from app.services.grid_logic import build_grid_nodes, derive_base_position_grid_indices as shared_derive_base_position_grid_indices
+from app.services.risk_limit import (
+    estimate_initial_avg_entry_and_liquidation_price,
+    estimate_max_possible_loss_at_stop,
+)
 
 
 def normalize_pct(value: float) -> float:
@@ -79,12 +84,6 @@ def derive_stop_loss_ratio_pct(strategy: StrategyConfig) -> float:
     return 0.0
 
 
-def open_fill_price(side: str, raw_level: float, slippage: float) -> float:
-    if side == "long":
-        return raw_level * (1.0 + slippage)
-    return raw_level * (1.0 - slippage)
-
-
 def grid_nodes_with_cache(
     lower: float,
     upper: float,
@@ -96,9 +95,7 @@ def grid_nodes_with_cache(
     if cached is not None:
         return cached
 
-    grid_size = (upper - lower) / grids
-    nodes = [lower + (i * grid_size) for i in range(grids + 1)]
-    eps = max(abs(grid_size) * 1e-9, 1e-8)
+    nodes, eps = build_grid_nodes(lower, upper, grids)
     node_cache[cache_key] = (nodes, eps)
     return nodes, eps
 
@@ -110,29 +107,12 @@ def derive_base_position_grid_indices(
     nodes: Optional[List[float]] = None,
     eps: Optional[float] = None,
 ) -> List[int]:
-    if not strategy.use_base_position:
-        return []
-
-    if nodes is None or eps is None:
-        grid_size = (strategy.upper - strategy.lower) / strategy.grids
-        nodes = [strategy.lower + (i * grid_size) for i in range(strategy.grids + 1)]
-        eps = max(abs(grid_size) * 1e-9, 1e-8)
-
-    on_node = any(abs(node - current_price) <= eps for node in nodes)
-    offset = 1 if on_node else 2
-
-    if strategy.side.value == "long":
-        k = sum(1 for node in nodes if node > current_price + eps)
-        base_grid_count = max(k - offset, 0)
-        first_above_idx = next((idx for idx, node in enumerate(nodes) if node > current_price + eps), len(nodes))
-        grid_indices = list(range(first_above_idx, min(strategy.grids, first_above_idx + base_grid_count)))
-    else:
-        k = sum(1 for node in nodes if node < current_price - eps)
-        base_grid_count = max(k - offset, 0)
-        grid_indices = list(range(1, min(strategy.grids, 1 + base_grid_count)))
-
-    base_grid_count = max(0, min(base_grid_count, len(grid_indices)))
-    return grid_indices[:base_grid_count]
+    return shared_derive_base_position_grid_indices(
+        strategy,
+        current_price=current_price,
+        nodes=nodes,
+        eps=eps,
+    )
 
 
 def derive_base_position_info(
@@ -161,78 +141,14 @@ def estimate_initial_avg_entry_and_liquidation(
     eps: Optional[float] = None,
     base_grid_indices: Optional[List[int]] = None,
 ) -> Tuple[Optional[float], Optional[float]]:
-    if grid_lines is None or eps is None:
-        grid_size = (strategy.upper - strategy.lower) / strategy.grids
-        grid_lines = [strategy.lower + (i * grid_size) for i in range(strategy.grids + 1)]
-        eps = max(abs(grid_size) * 1e-9, 1e-8)
-
-    order_notional = strategy.margin * strategy.leverage / strategy.grids
-    opened_indices: set[int] = set()
-    positions: List[Tuple[float, float]] = []
-
-    def add_position(grid_index: int, raw_open_level: float) -> None:
-        if grid_index in opened_indices:
-            return
-        opened_indices.add(grid_index)
-        entry_price = open_fill_price(strategy.side.value, raw_open_level, strategy.slippage)
-        if entry_price <= 0:
-            return
-        quantity = order_notional / entry_price
-        if quantity <= 0:
-            return
-        positions.append((entry_price, quantity))
-
-    # Base positions are market-filled at the first candle close.
-    effective_base_indices = (
-        base_grid_indices
-        if base_grid_indices is not None
-        else derive_base_position_grid_indices(strategy, current_price=current_price, nodes=grid_lines, eps=eps)
+    # Keep optimizer pre-check aligned with backtest risk engine.
+    # We intentionally ignore optional precomputed nodes here to avoid
+    # drifting from the single source of truth in services/risk_limit.py.
+    _ = grid_lines, eps, base_grid_indices
+    return estimate_initial_avg_entry_and_liquidation_price(
+        strategy,
+        initial_price=current_price,
     )
-    for grid_index in effective_base_indices:
-        add_position(grid_index, current_price)
-
-    # Estimate adverse move to stop-loss: open any additional grids crossed
-    # before the stop trigger.
-    if strategy.side.value == "long":
-        for grid_index in range(strategy.grids):
-            open_level = grid_lines[grid_index]
-            if open_level < current_price - eps:
-                add_position(grid_index, open_level)
-    else:
-        for grid_index in range(strategy.grids):
-            open_level = grid_lines[grid_index + 1]
-            if open_level > current_price + eps:
-                add_position(grid_index, open_level)
-
-    if not positions:
-        return None, None
-
-    total_qty = sum(quantity for _, quantity in positions)
-    if total_qty <= 0:
-        return None, None
-
-    avg_entry = sum(entry_price * quantity for entry_price, quantity in positions) / total_qty
-    if avg_entry <= 0:
-        return None, None
-
-    total_notional = total_qty * avg_entry
-    if total_notional <= 0:
-        return None, None
-
-    estimated_entry_fees = len(positions) * order_notional * strategy.fee_rate
-    effective_margin = max(strategy.margin - estimated_entry_fees, 0.0)
-    maintenance_margin = strategy.maintenance_margin_rate * total_notional
-    margin_buffer = max(effective_margin - maintenance_margin, 0.0)
-
-    if strategy.side.value == "long":
-        liquidation_price = avg_entry * (1.0 - (margin_buffer / total_notional))
-    else:
-        liquidation_price = avg_entry * (1.0 + (margin_buffer / total_notional))
-
-    if liquidation_price <= 0:
-        return avg_entry, None
-
-    return avg_entry, liquidation_price
 
 
 @dataclass
@@ -333,12 +249,14 @@ def build_single_combo(
     base_strategy: StrategyConfig,
     reference_price: float,
     initial_price: float,
+    max_loss_initial_price: Optional[float] = None,
     leverage: float,
     grids: int,
     band_pct_raw: float,
     stop_ratio_raw: float,
     use_base_position: bool,
     node_cache: Dict[Tuple[float, float, int], Tuple[List[float], float]],
+    max_allowed_loss_usdt: Optional[float] = None,
 ) -> Optional[dict]:
     band_ratio = normalize_pct(float(band_pct_raw))
     stop_ratio = normalize_pct(float(stop_ratio_raw))
@@ -402,6 +320,10 @@ def build_single_combo(
         nodes=nodes,
         eps=eps,
     )
+    loss_anchor_price = float(max_loss_initial_price) if max_loss_initial_price is not None else float(initial_price)
+    max_possible_loss_usdt = estimate_max_possible_loss_at_stop(strategy, initial_price=loss_anchor_price)
+    if max_allowed_loss_usdt is not None and max_possible_loss_usdt > (float(max_allowed_loss_usdt) + 1e-9):
+        return None
 
     return {
         "row_id": row_id,
@@ -422,6 +344,7 @@ def build_single_combo(
             "range_upper": float(upper),
             "stop_loss": float(stop_loss),
             "stop_loss_ratio_pct": float(effective_stop_ratio_pct),
+            "max_possible_loss_usdt": float(max_possible_loss_usdt),
         },
     }
 
@@ -431,6 +354,7 @@ def build_combinations(
     optimization: OptimizationConfig,
     reference_price: float,
     initial_price: float,
+    max_loss_initial_price: Optional[float] = None,
 ) -> List[dict]:
     space = resolve_parameter_space(base_strategy, optimization, reference_price)
 
@@ -446,12 +370,14 @@ def build_combinations(
             base_strategy=base_strategy,
             reference_price=reference_price,
             initial_price=initial_price,
+            max_loss_initial_price=max_loss_initial_price,
             leverage=float(leverage),
             grids=int(grids),
             band_pct_raw=float(band_pct_raw),
             stop_ratio_raw=float(stop_ratio_raw),
             use_base_position=bool(use_base_position),
             node_cache=node_cache,
+            max_allowed_loss_usdt=optimization.max_allowed_loss_usdt,
         )
         if combo is None:
             continue
@@ -460,6 +386,144 @@ def build_combinations(
         row_id += 1
 
     return combos
+
+
+def _combo_index_to_params(
+    space: ParameterSpace,
+    flat_index: int,
+) -> tuple[float, int, float, float, bool]:
+    leverage_n = len(space.leverage_values)
+    grid_n = len(space.grid_values)
+    band_n = len(space.band_values)
+    stop_n = len(space.stop_ratio_values)
+    base_n = len(space.base_position_values)
+    total = leverage_n * grid_n * band_n * stop_n * base_n
+    if total <= 0:
+        raise ValueError("invalid parameter space")
+
+    idx = int(flat_index) % total
+    base_i = idx % base_n
+    idx //= base_n
+    stop_i = idx % stop_n
+    idx //= stop_n
+    band_i = idx % band_n
+    idx //= band_n
+    grid_i = idx % grid_n
+    idx //= grid_n
+    leverage_i = idx % leverage_n
+    return (
+        float(space.leverage_values[leverage_i]),
+        int(space.grid_values[grid_i]),
+        float(space.band_values[band_i]),
+        float(space.stop_ratio_values[stop_i]),
+        bool(space.base_position_values[base_i]),
+    )
+
+
+def _evenly_spaced_indices(total: int, count: int) -> list[int]:
+    if total <= 0 or count <= 0:
+        return []
+    if count >= total:
+        return list(range(total))
+    if count == 1:
+        return [0]
+    last = total - 1
+    ratio = last / (count - 1)
+    seen: set[int] = set()
+    indices: list[int] = []
+    for i in range(count):
+        idx = int(round(i * ratio))
+        if idx in seen:
+            continue
+        seen.add(idx)
+        indices.append(idx)
+    cursor = 0
+    while len(indices) < count and cursor < total:
+        if cursor not in seen:
+            seen.add(cursor)
+            indices.append(cursor)
+        cursor += 1
+    indices.sort()
+    return indices[:count]
+
+
+def build_combinations_limited(
+    *,
+    base_strategy: StrategyConfig,
+    optimization: OptimizationConfig,
+    reference_price: float,
+    initial_price: float,
+    max_loss_initial_price: Optional[float] = None,
+    max_count: int,
+    seed: Optional[int] = None,
+) -> tuple[list[dict], int]:
+    space = resolve_parameter_space(base_strategy, optimization, reference_price)
+    total_space = total_space_combinations(space)
+    if total_space <= 0 or max_count <= 0:
+        return [], total_space
+
+    target = max(1, min(int(max_count), total_space))
+    node_cache: Dict[Tuple[float, float, int], Tuple[List[float], float]] = {}
+    combos: list[dict] = []
+    row_id = 1
+
+    # First pass: deterministic even coverage across full cartesian space.
+    base_indices = _evenly_spaced_indices(total_space, target)
+    seen_indices: set[int] = set()
+    for flat_idx in base_indices:
+        seen_indices.add(flat_idx)
+        leverage, grids, band_pct_raw, stop_ratio_raw, use_base_position = _combo_index_to_params(space, flat_idx)
+        combo = build_single_combo(
+            row_id=row_id,
+            base_strategy=base_strategy,
+            reference_price=reference_price,
+            initial_price=initial_price,
+            max_loss_initial_price=max_loss_initial_price,
+            leverage=leverage,
+            grids=grids,
+            band_pct_raw=band_pct_raw,
+            stop_ratio_raw=stop_ratio_raw,
+            use_base_position=use_base_position,
+            node_cache=node_cache,
+            max_allowed_loss_usdt=optimization.max_allowed_loss_usdt,
+        )
+        if combo is None:
+            continue
+        combos.append(combo)
+        row_id += 1
+
+    # Second pass: deterministic random fill for invalidly filtered holes.
+    if len(combos) < target and len(seen_indices) < total_space:
+        rng = random.Random(seed if seed is not None else 0xC0FFEE)
+        attempts = 0
+        max_attempts = max(target * 30, 3_000)
+        while len(combos) < target and len(seen_indices) < total_space and attempts < max_attempts:
+            attempts += 1
+            flat_idx = int(rng.randrange(total_space))
+            if flat_idx in seen_indices:
+                continue
+            seen_indices.add(flat_idx)
+            leverage, grids, band_pct_raw, stop_ratio_raw, use_base_position = _combo_index_to_params(space, flat_idx)
+            combo = build_single_combo(
+                row_id=row_id,
+                base_strategy=base_strategy,
+                reference_price=reference_price,
+                initial_price=initial_price,
+                max_loss_initial_price=max_loss_initial_price,
+                leverage=leverage,
+                grids=grids,
+                band_pct_raw=band_pct_raw,
+                stop_ratio_raw=stop_ratio_raw,
+                use_base_position=use_base_position,
+                node_cache=node_cache,
+                max_allowed_loss_usdt=optimization.max_allowed_loss_usdt,
+            )
+            if combo is None:
+                continue
+            combos.append(combo)
+            row_id += 1
+
+    return combos, total_space
 
 
 def limit_combinations(combos: List[dict], max_count: int) -> List[dict]:
@@ -510,6 +574,7 @@ def sample_random_combinations(
     optimization: OptimizationConfig,
     reference_price: float,
     initial_price: float,
+    max_loss_initial_price: Optional[float] = None,
     trial_budget: int,
     seed: Optional[int],
 ) -> Tuple[List[dict], int]:
@@ -548,12 +613,14 @@ def sample_random_combinations(
             base_strategy=base_strategy,
             reference_price=reference_price,
             initial_price=initial_price,
+            max_loss_initial_price=max_loss_initial_price,
             leverage=leverage,
             grids=grids,
             band_pct_raw=band_pct_raw,
             stop_ratio_raw=stop_ratio_raw,
             use_base_position=use_base_position,
             node_cache=node_cache,
+            max_allowed_loss_usdt=optimization.max_allowed_loss_usdt,
         )
         if combo is None:
             pruned_invalid += 1
@@ -582,12 +649,14 @@ def sample_random_combinations(
                 base_strategy=base_strategy,
                 reference_price=reference_price,
                 initial_price=initial_price,
+                max_loss_initial_price=max_loss_initial_price,
                 leverage=float(leverage),
                 grids=int(grids),
                 band_pct_raw=float(band_pct_raw),
                 stop_ratio_raw=float(stop_ratio_raw),
                 use_base_position=bool(use_base_position),
                 node_cache=node_cache,
+                max_allowed_loss_usdt=optimization.max_allowed_loss_usdt,
             )
             if combo is None:
                 pruned_invalid += 1
@@ -627,6 +696,7 @@ def generate_refine_combos(
     optimization: OptimizationConfig,
     reference_price: float,
     initial_price: float,
+    max_loss_initial_price: Optional[float] = None,
     row_id_start: int,
     existing_signatures: set[Tuple[Any, ...]],
     parameter_space: ParameterSpace,
@@ -694,12 +764,14 @@ def generate_refine_combos(
                 base_strategy=base_strategy,
                 reference_price=reference_price,
                 initial_price=initial_price,
+                max_loss_initial_price=max_loss_initial_price,
                 leverage=leverage,
                 grids=grids,
                 band_pct_raw=band_pct,
                 stop_ratio_raw=stop_pct,
                 use_base_position=base_flag,
                 node_cache=node_cache,
+                max_allowed_loss_usdt=optimization.max_allowed_loss_usdt,
             )
             if combo is None:
                 continue

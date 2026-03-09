@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi.testclient import TestClient
 import pytest
 
+from app.core.schemas import BacktestJobMeta, BacktestJobStatus, BacktestStatusResponse
 from app.main import app
 from app.services import backtest_jobs
 
@@ -132,3 +133,186 @@ def test_backtest_async_status_404_for_unknown_job() -> None:
     client = TestClient(app)
     response = client.get("/api/v1/backtest/missing-job-id")
     assert response.status_code == 404
+
+
+def test_backtest_anchor_price_uses_first_candle_close() -> None:
+    client = TestClient(app)
+    payload = _payload()
+    response = client.post("/api/v1/backtest/anchor-price", json=payload["data"])
+    assert response.status_code == 200
+    body = response.json()
+    assert body["anchor_source"] == "first_candle_close"
+    assert body["anchor_price"] == pytest.approx(70030.0, abs=1e-6)
+    assert body["candle_count"] >= 1
+
+
+def test_backtest_anchor_price_supports_all_anchor_modes() -> None:
+    client = TestClient(app)
+    payload = _payload()
+
+    start_resp = client.post("/api/v1/backtest/anchor-price", json=payload["data"])
+    avg_resp = client.post(
+        "/api/v1/backtest/anchor-price",
+        params={"anchor_mode": "BACKTEST_AVG_PRICE"},
+        json=payload["data"],
+    )
+    current_resp = client.post(
+        "/api/v1/backtest/anchor-price",
+        params={"anchor_mode": "CURRENT_PRICE"},
+        json=payload["data"],
+    )
+    custom_resp = client.post(
+        "/api/v1/backtest/anchor-price",
+        params={"anchor_mode": "CUSTOM_PRICE", "custom_anchor_price": 12345.6789},
+        json=payload["data"],
+    )
+
+    assert start_resp.status_code == 200
+    assert avg_resp.status_code == 200
+    assert current_resp.status_code == 200
+    assert custom_resp.status_code == 200
+
+    start_body = start_resp.json()
+    avg_body = avg_resp.json()
+    current_body = current_resp.json()
+    custom_body = custom_resp.json()
+
+    assert start_body["anchor_source"] == "first_candle_close"
+    assert avg_body["anchor_source"] == "avg_candle_close"
+    assert current_body["anchor_source"] == "last_candle_close"
+    assert custom_body["anchor_source"] == "custom_price"
+    assert custom_body["anchor_price"] == pytest.approx(12345.68, abs=1e-6)
+
+
+def test_backtest_anchor_price_custom_mode_requires_custom_anchor_price() -> None:
+    client = TestClient(app)
+    payload = _payload()
+    response = client.post(
+        "/api/v1/backtest/anchor-price",
+        params={"anchor_mode": "CUSTOM_PRICE"},
+        json=payload["data"],
+    )
+    assert response.status_code == 400
+    assert "custom_anchor_price" in response.json()["detail"]
+
+
+def test_backtest_sync_rejects_when_max_loss_limit_too_small() -> None:
+    client = TestClient(app)
+    payload = _payload()
+    payload["strategy"]["max_allowed_loss_usdt"] = 10.0
+
+    response = client.post("/api/v1/backtest/run", json=payload)
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert "以损定仓约束不满足" in detail
+
+
+def test_backtest_sync_rejects_when_stop_loss_exceeds_estimated_liquidation() -> None:
+    client = TestClient(app)
+    payload = _payload()
+    payload["strategy"]["stop_loss"] = 200000.0
+
+    response = client.post("/api/v1/backtest/run", json=payload)
+    assert response.status_code == 400
+    detail = response.json()["detail"]
+    assert "止损/强平约束不满足" in detail
+
+
+def test_backtest_start_rejects_when_max_loss_limit_too_small() -> None:
+    client = TestClient(app)
+    payload = _payload()
+    payload["strategy"]["max_allowed_loss_usdt"] = 10.0
+
+    start_resp = client.post("/api/v1/backtest/start", json=payload)
+    assert start_resp.status_code == 400
+    assert "以损定仓约束不满足" in start_resp.json()["detail"]
+
+
+def test_backtest_start_rejects_when_stop_loss_exceeds_estimated_liquidation() -> None:
+    client = TestClient(app)
+    payload = _payload()
+    payload["strategy"]["stop_loss"] = 200000.0
+
+    start_resp = client.post("/api/v1/backtest/start", json=payload)
+    assert start_resp.status_code == 400
+    assert "止损/强平约束不满足" in start_resp.json()["detail"]
+
+
+def test_backtest_run_allows_violations_when_strict_risk_control_disabled() -> None:
+    client = TestClient(app)
+    payload = _payload()
+    payload["strategy"]["strict_risk_control"] = False
+    payload["strategy"]["max_allowed_loss_usdt"] = 10.0
+    payload["strategy"]["stop_loss"] = 200000.0
+
+    response = client.post("/api/v1/backtest/run", json=payload)
+    assert response.status_code == 200
+    assert "summary" in response.json()
+
+
+def test_backtest_start_allows_violations_when_strict_risk_control_disabled() -> None:
+    client = TestClient(app)
+    payload = _payload()
+    payload["strategy"]["strict_risk_control"] = False
+    payload["strategy"]["max_allowed_loss_usdt"] = 10.0
+    payload["strategy"]["stop_loss"] = 200000.0
+
+    response = client.post("/api/v1/backtest/start", json=payload)
+    assert response.status_code == 200
+    assert "job_id" in response.json()
+
+
+def test_backtest_start_honors_idempotency_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = TestClient(app)
+    payload = _payload()
+    payload["strategy"]["strict_risk_control"] = False
+
+    calls = {"count": 0}
+    original_start = backtest_jobs.start_backtest_job
+
+    def counting_start(request_payload):
+        calls["count"] += 1
+        return original_start(request_payload)
+
+    monkeypatch.setattr("app.api.routes.start_backtest_job", counting_start)
+
+    headers = {"Idempotency-Key": "same-key-backtest"}
+    first = client.post("/api/v1/backtest/start", json=payload, headers=headers)
+    second = client.post("/api/v1/backtest/start", json=payload, headers=headers)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["job_id"] == second.json()["job_id"]
+    assert calls["count"] == 1
+
+
+def test_job_stream_endpoint_emits_backtest_update(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = TestClient(app)
+    now = datetime.now(timezone.utc)
+    payload = BacktestStatusResponse(
+        job=BacktestJobMeta(
+            job_id="job-stream-backtest",
+            status=BacktestJobStatus.COMPLETED,
+            created_at=now,
+            started_at=now,
+            finished_at=now,
+            progress=100.0,
+            message="done",
+            error=None,
+        ),
+        result=None,
+    )
+
+    monkeypatch.setattr("app.api.job_stream.get_backtest_job_status", lambda _job_id: payload)
+
+    with client.stream(
+        "GET",
+        "/api/v1/jobs/job-stream-backtest/stream",
+        params={"job_type": "backtest"},
+    ) as response:
+        assert response.status_code == 200
+        stream_text = "".join(response.iter_text())
+
+    assert "event: update" in stream_text
+    assert "\"job_type\":\"backtest\"" in stream_text
+    assert "\"status\":\"completed\"" in stream_text

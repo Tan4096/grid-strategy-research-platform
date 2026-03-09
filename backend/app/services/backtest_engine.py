@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass
 from datetime import datetime
 from math import floor, isfinite
-from typing import Callable, Literal, Optional
+from typing import Any, Callable, Literal, Optional
 
 import numpy as np
 
@@ -17,6 +18,8 @@ from app.core.schemas import (
     StrategyConfig,
     TradeEvent,
 )
+from app.services.grid_logic import derive_base_position_grid_indices
+from app.services.risk_limit import estimate_max_possible_loss_at_stop
 
 
 @dataclass
@@ -34,6 +37,7 @@ class EngineState:
     realized_pnl: float = 0.0
     fees_paid: float = 0.0
     funding_paid: float = 0.0
+    funding_net: float = 0.0
     stop_loss_count: int = 0
     liquidation_count: int = 0
     full_grid_profit_count: int = 0
@@ -98,12 +102,45 @@ def _unrealized_pnl(positions: dict[int, GridPosition], side: GridSide, mark_pri
     return sum((p.entry_price - mark_price) * p.quantity for p in positions.values())
 
 
+def _position_market_value(mark_price: float, quantity: float) -> float:
+    return abs(mark_price * quantity)
+
+
+def _total_market_value(positions: dict[int, GridPosition], mark_price: float) -> float:
+    return sum(_position_market_value(mark_price, p.quantity) for p in positions.values())
+
+
+def _candle_window_end(candles: list[Candle], index: int) -> datetime:
+    if index + 1 < len(candles):
+        return candles[index + 1].timestamp
+    if index > 0:
+        delta = candles[index].timestamp - candles[index - 1].timestamp
+        if delta.total_seconds() > 0:
+            return candles[index].timestamp + delta
+    return candles[index].timestamp
+
+
+def _funding_statement_amount(funding_net: float) -> float:
+    return -funding_net
+
+
+def _total_return_usdt(
+    state: EngineState,
+    positions: dict[int, GridPosition],
+    side: GridSide,
+    mark_price: float,
+) -> float:
+    trading_pnl_excluding_funding = state.realized_pnl - state.funding_net
+    funding_statement_amount = _funding_statement_amount(state.funding_net)
+    return trading_pnl_excluding_funding + _unrealized_pnl(positions, side, mark_price) - state.fees_paid - funding_statement_amount
+
+
 def _used_notional(positions: dict[int, GridPosition], mark_price: float) -> float:
-    return sum(abs(mark_price * p.quantity) for p in positions.values())
+    return _total_market_value(positions, mark_price)
 
 
 def _equity(initial_margin: float, state: EngineState, positions: dict[int, GridPosition], side: GridSide, mark_price: float) -> float:
-    return initial_margin + state.realized_pnl + _unrealized_pnl(positions, side, mark_price) - state.fees_paid
+    return initial_margin + _total_return_usdt(state, positions, side, mark_price)
 
 
 def _maintenance_margin(positions: dict[int, GridPosition], mark_price: float, mmr: float) -> float:
@@ -169,40 +206,14 @@ def initialize_base_position(
     first_candle: Candle,
     order_notional: float,
     open_position: Callable[[int, float, datetime, bool], bool],
-    emit_event: Callable[[datetime, str, float, str], None],
+    emit_event: Callable[[datetime, str, float, str, Optional[dict[str, Any]]], None],
 ) -> tuple[int, float]:
     if not strategy.use_base_position:
         return 0, 0.0
 
-    # Use the first candle close to determine how many completed grids exist.
     decision_price = first_candle.close
-    # Use the first candle close as base-position execution price (market-style fill).
     base_entry_price = first_candle.close
-    if len(nodes) > 1:
-        grid_size = (nodes[-1] - nodes[0]) / (len(nodes) - 1)
-        eps = max(abs(grid_size) * 1e-9, 1e-8)
-    else:
-        eps = 1e-8
-    on_node = any(abs(node - decision_price) <= eps for node in nodes)
-    offset = 1 if on_node else 2
-
-    if strategy.side == GridSide.LONG:
-        # Exchange-style node logic:
-        # - on node: remove boundary node
-        # - between nodes: remove boundary node + current unfinished grid
-        k = sum(1 for node in nodes if node > decision_price + eps)
-        base_grid_count = max(k - offset, 0)
-        first_above_idx = next((idx for idx, node in enumerate(nodes) if node > decision_price + eps), len(nodes))
-        grid_indices = list(range(first_above_idx, min(strategy.grids, first_above_idx + base_grid_count)))
-    else:
-        # Mirror rule for short side:
-        # - on node: remove boundary node
-        # - between nodes: remove boundary node + current unfinished grid
-        k = sum(1 for node in nodes if node < decision_price - eps)
-        base_grid_count = max(k - offset, 0)
-        grid_indices = list(range(1, min(strategy.grids, 1 + base_grid_count)))
-
-    base_grid_count = min(base_grid_count, len(grid_indices))
+    grid_indices = derive_base_position_grid_indices(strategy, current_price=decision_price, nodes=nodes)
     opened_count = 0
 
     for grid_index in grid_indices:
@@ -223,6 +234,11 @@ def initialize_base_position(
                 "base_grid_count="
                 f"{base_grid_count}, initial_position_size={initial_position_size:.4f}, decision_price={decision_price:.4f}"
             ),
+            payload={
+                "base_grid_count": base_grid_count,
+                "initial_position_size": float(initial_position_size),
+                "decision_price": float(decision_price),
+            },
         )
 
     return base_grid_count, initial_position_size
@@ -237,6 +253,7 @@ def run_backtest(
         raise ValueError("at least 2 candles are required for backtest")
 
     grid_lines = np.linspace(strategy.lower, strategy.upper, strategy.grids + 1).tolist()
+    max_possible_loss_usdt = estimate_max_possible_loss_at_stop(strategy, initial_price=candles[0].close)
     order_notional = strategy.margin * strategy.leverage / strategy.grids
     required_margin_per_order = order_notional / strategy.leverage
 
@@ -246,6 +263,7 @@ def run_backtest(
     events: list[EventLog] = []
     equity_curve: list[CurvePoint] = []
     drawdown_curve: list[CurvePoint] = []
+    unrealized_pnl_curve: list[CurvePoint] = []
     margin_ratio_curve: list[CurvePoint] = []
     leverage_usage_curve: list[CurvePoint] = []
     liquidation_price_curve: list[CurvePoint] = []
@@ -255,14 +273,22 @@ def run_backtest(
     base_grid_count = 0
     initial_position_size = 0.0
 
-    def emit_event(ts: datetime, event_type: str, price: float, message: str) -> None:
-        events.append(EventLog(timestamp=ts, event_type=event_type, price=float(price), message=message))
-
-    def can_open(mark_price: float) -> bool:
-        eq = _equity(strategy.margin, state, positions, strategy.side, mark_price)
-        used_margin = _used_notional(positions, mark_price) / strategy.leverage
-        free_margin = eq - used_margin
-        return free_margin >= required_margin_per_order and eq > 0
+    def emit_event(
+        ts: datetime,
+        event_type: str,
+        price: float,
+        message: str,
+        payload: Optional[dict[str, Any]] = None,
+    ) -> None:
+        events.append(
+            EventLog(
+                timestamp=ts,
+                event_type=event_type,
+                price=float(price),
+                message=message,
+                payload=payload,
+            )
+        )
 
     def close_position(grid_index: int, raw_exit_level: float, ts: datetime, close_reason: str) -> None:
         position = positions.pop(grid_index)
@@ -315,6 +341,12 @@ def run_backtest(
             event_type="close",
             price=exit_price,
             message=f"grid={grid_index}, reason={close_reason}, net_pnl={net:.4f}",
+            payload={
+                "grid_index": int(grid_index),
+                "close_reason": close_reason,
+                "fee_paid": float(close_fee),
+                "net_pnl": float(net),
+            },
         )
 
     def open_position(grid_index: int, raw_entry_level: float, ts: datetime, as_base_position: bool = False) -> bool:
@@ -346,7 +378,18 @@ def run_backtest(
             entry_fee=entry_fee,
         )
 
-        emit_event(ts, event_type="open", price=entry_price, message=f"grid={grid_index}, qty={quantity:.8f}")
+        emit_event(
+            ts,
+            event_type="open",
+            price=entry_price,
+            message=f"grid={grid_index}, qty={quantity:.8f}",
+            payload={
+                "grid_index": int(grid_index),
+                "fee_paid": float(entry_fee),
+                "quantity": float(quantity),
+                "as_base_position": bool(as_base_position),
+            },
+        )
         return True
 
     base_grid_count, initial_position_size = initialize_base_position(
@@ -358,21 +401,79 @@ def run_backtest(
         emit_event=emit_event,
     )
 
+    if len(grid_lines) > 1:
+        grid_step = (grid_lines[-1] - grid_lines[0]) / (len(grid_lines) - 1)
+        grid_eps = max(abs(grid_step) * 1e-9, 1e-8)
+    else:
+        grid_eps = 1e-8
+    pending_orders: set[int] = set()
+
+    def entry_level_for_grid(grid_index: int) -> float:
+        if strategy.side == GridSide.LONG:
+            return grid_lines[grid_index]
+        return grid_lines[grid_index + 1]
+
+    def entry_is_adverse(grid_index: int, mark_price: float) -> bool:
+        entry_level = entry_level_for_grid(grid_index)
+        if strategy.side == GridSide.LONG:
+            return entry_level <= mark_price + grid_eps
+        return entry_level >= mark_price - grid_eps
+
+    def available_pending_margin(mark_price: float) -> float:
+        eq = _equity(strategy.margin, state, positions, strategy.side, mark_price)
+        used_margin = _used_notional(positions, mark_price) / strategy.leverage
+        reserved_margin = len(pending_orders) * required_margin_per_order
+        return eq - used_margin - reserved_margin
+
+    def refresh_pending_orders(ts: datetime, mark_price: float) -> None:
+        for grid_index in list(pending_orders):
+            if grid_index in positions or not entry_is_adverse(grid_index, mark_price):
+                pending_orders.discard(grid_index)
+
+        if strategy.side == GridSide.LONG:
+            candidate_indices = range(strategy.grids - 1, -1, -1)
+        else:
+            candidate_indices = range(strategy.grids)
+
+        for grid_index in candidate_indices:
+            if grid_index in positions or grid_index in pending_orders:
+                continue
+            if not entry_is_adverse(grid_index, mark_price):
+                continue
+            if available_pending_margin(mark_price) + 1e-12 < required_margin_per_order:
+                break
+            pending_orders.add(grid_index)
+            order_level = entry_level_for_grid(grid_index)
+            emit_event(
+                ts,
+                event_type="order_placed",
+                price=order_level,
+                message=f"grid={grid_index}, order_level={order_level:.8f}",
+                payload={
+                    "grid_index": int(grid_index),
+                    "order_level": float(order_level),
+                },
+            )
+
+    refresh_pending_orders(candles[0].timestamp, candles[0].close)
+
     def run_open_pass(candle: Candle) -> None:
         if strategy.side == GridSide.LONG:
             for grid_index in range(strategy.grids):
-                if grid_index in positions:
+                if grid_index in positions or grid_index not in pending_orders:
                     continue
                 open_level = grid_lines[grid_index]
-                if _touched(open_level, candle) and can_open(candle.close):
+                if _touched(open_level, candle):
+                    pending_orders.discard(grid_index)
                     open_position(grid_index, open_level, candle.timestamp, False)
             return
 
         for grid_index in range(strategy.grids):
-            if grid_index in positions:
+            if grid_index in positions or grid_index not in pending_orders:
                 continue
             open_level = grid_lines[grid_index + 1]
-            if _touched(open_level, candle) and can_open(candle.close):
+            if _touched(open_level, candle):
+                pending_orders.discard(grid_index)
                 open_position(grid_index, open_level, candle.timestamp, False)
 
     def run_close_pass(candle: Candle) -> None:
@@ -407,7 +508,13 @@ def run_backtest(
             close_position(grid_index, stop_price, candle.timestamp, "stop_loss")
 
         state.stop_loss_count += 1
-        emit_event(candle.timestamp, event_type="stop_loss", price=stop_price, message="stop loss triggered")
+        emit_event(
+            candle.timestamp,
+            event_type="stop_loss",
+            price=stop_price,
+            message="stop loss triggered",
+            payload={"stop_price": float(stop_price)},
+        )
         if not strategy.reopen_after_stop:
             active = False
             stop_without_reopen = True
@@ -418,33 +525,52 @@ def run_backtest(
     funding_schedule = sorted(funding_rates or [], key=lambda item: item[0])
     funding_cursor = 0
 
+    def apply_scheduled_funding(candle: Candle, window_end: datetime) -> None:
+        nonlocal funding_cursor
+
+        while funding_cursor < len(funding_schedule):
+            funding_ts, funding_rate = funding_schedule[funding_cursor]
+            if funding_ts < candle.timestamp:
+                funding_cursor += 1
+                continue
+            if funding_ts >= window_end:
+                break
+            funding_cursor += 1
+            if not positions or funding_rate == 0:
+                continue
+
+            funding_price = candle.open
+            notional = _total_market_value(positions, funding_price)
+            side_sign = 1.0 if strategy.side == GridSide.LONG else -1.0
+            funding_pnl = -side_sign * funding_rate * notional
+            funding_statement_amount = _funding_statement_amount(funding_pnl)
+            state.realized_pnl += funding_pnl
+            state.funding_net += funding_pnl
+            if funding_pnl < 0:
+                state.funding_paid += abs(funding_pnl)
+            emit_event(
+                funding_ts,
+                event_type="funding",
+                price=funding_price,
+                message=(
+                    f"funding_pnl={funding_statement_amount:.6f}, rate={funding_rate:.8f}, "
+                    f"position_notional={notional:.6f}, "
+                    f"funding_time={funding_ts.isoformat()}"
+                ),
+                payload={
+                    "funding_pnl": float(funding_statement_amount),
+                    "funding_statement_amount": float(funding_statement_amount),
+                    "funding_net": float(funding_pnl),
+                    "rate": float(funding_rate),
+                    "position_notional": float(notional),
+                    "funding_time": funding_ts.isoformat(),
+                },
+            )
+
     def apply_funding(candle: Candle) -> None:
         nonlocal prev_candle_ts, funding_cursor
 
         if funding_schedule:
-            while funding_cursor < len(funding_schedule):
-                funding_ts, funding_rate = funding_schedule[funding_cursor]
-                if funding_ts > candle.timestamp:
-                    break
-                funding_cursor += 1
-                if not positions or funding_rate == 0:
-                    continue
-
-                notional = sum(candle.close * p.quantity for p in positions.values())
-                side_sign = 1.0 if strategy.side == GridSide.LONG else -1.0
-                funding_pnl = -side_sign * funding_rate * notional
-                state.realized_pnl += funding_pnl
-                if funding_pnl < 0:
-                    state.funding_paid += abs(funding_pnl)
-                emit_event(
-                    candle.timestamp,
-                    event_type="funding",
-                    price=candle.close,
-                    message=(
-                        f"funding_pnl={funding_pnl:.6f}, rate={funding_rate:.8f}, "
-                        f"funding_time={funding_ts.isoformat()}"
-                    ),
-                )
             prev_candle_ts = candle.timestamp
             return
 
@@ -465,22 +591,34 @@ def run_backtest(
         if effective_rate == 0:
             return
 
-        notional = sum(candle.close * p.quantity for p in positions.values())
+        notional = _total_market_value(positions, candle.close)
         side_sign = 1.0 if strategy.side == GridSide.LONG else -1.0
         funding_pnl = -side_sign * effective_rate * notional
+        funding_statement_amount = _funding_statement_amount(funding_pnl)
         state.realized_pnl += funding_pnl
+        state.funding_net += funding_pnl
         if funding_pnl < 0:
             state.funding_paid += abs(funding_pnl)
         emit_event(
             candle.timestamp,
             event_type="funding",
             price=candle.close,
-            message=f"funding_pnl={funding_pnl:.6f}, rate={effective_rate:.8f}",
+            message=f"funding_pnl={funding_statement_amount:.6f}, rate={effective_rate:.8f}, position_notional={notional:.6f}",
+            payload={
+                "funding_pnl": float(funding_statement_amount),
+                "funding_statement_amount": float(funding_statement_amount),
+                "funding_net": float(funding_pnl),
+                "rate": float(effective_rate),
+                "position_notional": float(notional),
+            },
         )
 
-    for candle in candles:
+    for index, candle in enumerate(candles):
         if not active:
             break
+
+        if funding_schedule:
+            apply_scheduled_funding(candle, _candle_window_end(candles, index))
 
         # Stop-loss pass 1: apply to positions carried into this candle.
         execute_stop_loss(candle)
@@ -523,8 +661,14 @@ def run_backtest(
                     event_type="liquidation",
                     price=liquidation_price,
                     message="forced liquidation",
+                    payload={"liquidation_price": float(liquidation_price)},
                 )
                 active = False
+
+        if active:
+            refresh_pending_orders(candle.timestamp, candle.close)
+        else:
+            pending_orders.clear()
 
         mark_price = candle.close
         eq = _equity(strategy.margin, state, positions, strategy.side, mark_price)
@@ -538,6 +682,7 @@ def run_backtest(
         margin_ratio = maintenance_margin / eq if eq > 0 else float("inf")
         used_notional = _used_notional(positions, mark_price)
         leverage_usage = used_notional / eq if eq > 0 else float("inf")
+        unrealized = _unrealized_pnl(positions, strategy.side, mark_price)
 
         liq = _estimate_liquidation_price(
             initial_margin=strategy.margin,
@@ -550,6 +695,7 @@ def run_backtest(
 
         equity_curve.append(CurvePoint(timestamp=candle.timestamp, value=eq))
         drawdown_curve.append(CurvePoint(timestamp=candle.timestamp, value=drawdown * 100.0))
+        unrealized_pnl_curve.append(CurvePoint(timestamp=candle.timestamp, value=unrealized))
         margin_ratio_curve.append(
             CurvePoint(timestamp=candle.timestamp, value=margin_ratio if isfinite(margin_ratio) else 0.0)
         )
@@ -562,6 +708,11 @@ def run_backtest(
             event_type="snapshot",
             price=mark_price,
             message=f"equity={eq:.4f}, avg_entry={avg_entry:.4f}, open_positions={len(positions)}",
+            payload={
+                "equity": float(eq),
+                "avg_entry": float(avg_entry),
+                "open_positions": int(len(positions)),
+            },
         )
 
         if stop_without_reopen:
@@ -569,6 +720,8 @@ def run_backtest(
 
     final_mark = candles[-1].close
     final_equity = _equity(strategy.margin, state, positions, strategy.side, final_mark)
+    total_return_usdt = _total_return_usdt(state, positions, strategy.side, final_mark)
+    funding_statement_amount = _funding_statement_amount(state.funding_net)
 
     annualized_return_pct: Optional[float] = None
 
@@ -590,7 +743,7 @@ def run_backtest(
     summary = BacktestSummary(
         initial_margin=strategy.margin,
         final_equity=final_equity,
-        total_return_usdt=final_equity - strategy.margin,
+        total_return_usdt=total_return_usdt,
         total_return_pct=((final_equity / strategy.margin - 1.0) * 100.0) if strategy.margin > 0 else 0.0,
         annualized_return_pct=annualized_return_pct,
         average_round_profit=average_round_profit,
@@ -605,9 +758,12 @@ def run_backtest(
         status=status,
         fees_paid=state.fees_paid,
         funding_paid=state.funding_paid,
+        funding_net=state.funding_net,
+        funding_statement_amount=funding_statement_amount,
         use_base_position=strategy.use_base_position,
         base_grid_count=base_grid_count,
         initial_position_size=initial_position_size,
+        max_possible_loss_usdt=max_possible_loss_usdt,
     )
 
     return BacktestResult(
@@ -616,6 +772,7 @@ def run_backtest(
         grid_lines=grid_lines,
         equity_curve=equity_curve,
         drawdown_curve=drawdown_curve,
+        unrealized_pnl_curve=unrealized_pnl_curve,
         margin_ratio_curve=margin_ratio_curve,
         leverage_usage_curve=leverage_usage_curve,
         liquidation_price_curve=liquidation_price_curve,
@@ -634,6 +791,7 @@ def run_backtest_for_optimization(
         raise ValueError("at least 2 candles are required for backtest")
 
     grid_lines = np.linspace(strategy.lower, strategy.upper, strategy.grids + 1).tolist()
+    max_possible_loss_usdt = estimate_max_possible_loss_at_stop(strategy, initial_price=candles[0].close)
     order_notional = strategy.margin * strategy.leverage / strategy.grids
     required_margin_per_order = order_notional / strategy.leverage
 
@@ -646,7 +804,13 @@ def run_backtest_for_optimization(
     running_peak = strategy.margin
     min_drawdown = 0.0
 
-    def emit_event(ts: datetime, event_type: str, price: float, message: str) -> None:
+    def emit_event(
+        ts: datetime,
+        event_type: str,
+        price: float,
+        message: str,
+        payload: Optional[dict[str, Any]] = None,
+    ) -> None:
         return None
 
     def unrealized_pnl(mark_price: float) -> float:
@@ -658,13 +822,7 @@ def run_backtest_for_optimization(
         return strategy.margin + state.realized_pnl + unrealized_pnl(mark_price) - state.fees_paid
 
     def used_notional_at(mark_price: float) -> float:
-        return abs(mark_price * total_position_qty)
-
-    def can_open(mark_price: float) -> bool:
-        eq = equity_at(mark_price)
-        used_margin = used_notional_at(mark_price) / strategy.leverage
-        free_margin = eq - used_margin
-        return free_margin >= required_margin_per_order and eq > 0
+        return _position_market_value(mark_price, total_position_qty)
 
     def close_position(grid_index: int, raw_exit_level: float, ts: datetime, close_reason: str) -> None:
         nonlocal total_position_qty, total_entry_notional
@@ -739,36 +897,102 @@ def run_backtest_for_optimization(
         emit_event=emit_event,
     )
 
-    def run_open_pass(candle: Candle) -> None:
-        candle_close = candle.close
+    if len(grid_lines) > 1:
+        grid_step = (grid_lines[-1] - grid_lines[0]) / (len(grid_lines) - 1)
+        grid_eps = max(abs(grid_step) * 1e-9, 1e-8)
+    else:
+        grid_eps = 1e-8
+    pending_orders: set[int] = set()
+
+    def entry_level_for_grid(grid_index: int) -> float:
         if strategy.side == GridSide.LONG:
-            for grid_index in range(strategy.grids):
-                if grid_index in positions:
+            return grid_lines[grid_index]
+        return grid_lines[grid_index + 1]
+
+    def entry_is_adverse(grid_index: int, mark_price: float) -> bool:
+        entry_level = entry_level_for_grid(grid_index)
+        if strategy.side == GridSide.LONG:
+            return entry_level <= mark_price + grid_eps
+        return entry_level >= mark_price - grid_eps
+
+    def available_pending_margin(mark_price: float) -> float:
+        eq = equity_at(mark_price)
+        used_margin = used_notional_at(mark_price) / strategy.leverage
+        reserved_margin = len(pending_orders) * required_margin_per_order
+        return eq - used_margin - reserved_margin
+
+    def refresh_pending_orders(ts: datetime, mark_price: float) -> None:
+        for grid_index in list(pending_orders):
+            if grid_index in positions or not entry_is_adverse(grid_index, mark_price):
+                pending_orders.discard(grid_index)
+
+        if strategy.side == GridSide.LONG:
+            candidate_indices = range(strategy.grids - 1, -1, -1)
+        else:
+            candidate_indices = range(strategy.grids)
+
+        for grid_index in candidate_indices:
+            if grid_index in positions or grid_index in pending_orders:
+                continue
+            if not entry_is_adverse(grid_index, mark_price):
+                continue
+            if available_pending_margin(mark_price) + 1e-12 < required_margin_per_order:
+                break
+            pending_orders.add(grid_index)
+
+    refresh_pending_orders(candles[0].timestamp, candles[0].close)
+
+    def touched_line_range(candle: Candle) -> Optional[tuple[int, int]]:
+        left = bisect_left(grid_lines, candle.low)
+        right = bisect_right(grid_lines, candle.high) - 1
+        if left > right:
+            return None
+        if right < 0 or left > strategy.grids:
+            return None
+        return max(0, left), min(strategy.grids, right)
+
+    def run_open_pass(candle: Candle) -> None:
+        touched_range = touched_line_range(candle)
+        if touched_range is None:
+            return
+        line_start, line_end = touched_range
+        if strategy.side == GridSide.LONG:
+            start_idx = max(0, line_start)
+            end_idx = min(strategy.grids - 1, line_end)
+            for grid_index in range(start_idx, end_idx + 1):
+                if grid_index in positions or grid_index not in pending_orders:
                     continue
                 open_level = grid_lines[grid_index]
-                if _touched(open_level, candle) and can_open(candle_close):
-                    open_position(grid_index, open_level, candle.timestamp, False)
+                pending_orders.discard(grid_index)
+                open_position(grid_index, open_level, candle.timestamp, False)
             return
 
-        for grid_index in range(strategy.grids):
-            if grid_index in positions:
+        start_idx = max(0, line_start - 1)
+        end_idx = min(strategy.grids - 1, line_end - 1)
+        for grid_index in range(start_idx, end_idx + 1):
+            if grid_index in positions or grid_index not in pending_orders:
                 continue
             open_level = grid_lines[grid_index + 1]
-            if _touched(open_level, candle) and can_open(candle_close):
-                open_position(grid_index, open_level, candle.timestamp, False)
+            pending_orders.discard(grid_index)
+            open_position(grid_index, open_level, candle.timestamp, False)
 
     def run_close_pass(candle: Candle) -> None:
+        touched_range = touched_line_range(candle)
+        if touched_range is None:
+            return
+        line_start, line_end = touched_range
         active_indices = sorted(positions.keys())
         if strategy.side == GridSide.LONG:
             for grid_index in active_indices:
-                close_level = grid_lines[grid_index + 1]
-                if _touched(close_level, candle) and grid_index in positions:
+                line_index = grid_index + 1
+                if line_start <= line_index <= line_end and grid_index in positions:
+                    close_level = grid_lines[line_index]
                     close_position(grid_index, close_level, candle.timestamp, "grid_take_profit")
             return
 
         for grid_index in active_indices:
-            close_level = grid_lines[grid_index]
-            if _touched(close_level, candle) and grid_index in positions:
+            if line_start <= grid_index <= line_end and grid_index in positions:
+                close_level = grid_lines[grid_index]
                 close_position(grid_index, close_level, candle.timestamp, "grid_take_profit")
 
     def is_stop_touched(candle: Candle) -> bool:
@@ -799,23 +1023,31 @@ def run_backtest_for_optimization(
     funding_schedule = sorted(funding_rates or [], key=lambda item: item[0])
     funding_cursor = 0
 
+    def apply_scheduled_funding(candle: Candle, window_end: datetime) -> None:
+        nonlocal funding_cursor
+        while funding_cursor < len(funding_schedule):
+            funding_ts, funding_rate = funding_schedule[funding_cursor]
+            if funding_ts < candle.timestamp:
+                funding_cursor += 1
+                continue
+            if funding_ts >= window_end:
+                break
+            funding_cursor += 1
+            if not positions or funding_rate == 0:
+                continue
+
+            funding_price = candle.open
+            notional = _position_market_value(funding_price, total_position_qty)
+            side_sign = 1.0 if strategy.side == GridSide.LONG else -1.0
+            funding_pnl = -side_sign * funding_rate * notional
+            state.realized_pnl += funding_pnl
+            state.funding_net += funding_pnl
+            if funding_pnl < 0:
+                state.funding_paid += abs(funding_pnl)
+
     def apply_funding(candle: Candle) -> None:
         nonlocal prev_candle_ts, funding_cursor
         if funding_schedule:
-            while funding_cursor < len(funding_schedule):
-                funding_ts, funding_rate = funding_schedule[funding_cursor]
-                if funding_ts > candle.timestamp:
-                    break
-                funding_cursor += 1
-                if not positions or funding_rate == 0:
-                    continue
-
-                notional = sum(candle.close * p.quantity for p in positions.values())
-                side_sign = 1.0 if strategy.side == GridSide.LONG else -1.0
-                funding_pnl = -side_sign * funding_rate * notional
-                state.realized_pnl += funding_pnl
-                if funding_pnl < 0:
-                    state.funding_paid += abs(funding_pnl)
             prev_candle_ts = candle.timestamp
             return
 
@@ -835,16 +1067,20 @@ def run_backtest_for_optimization(
         if effective_rate == 0:
             return
 
-        notional = sum(candle.close * p.quantity for p in positions.values())
+        notional = _position_market_value(candle.close, total_position_qty)
         side_sign = 1.0 if strategy.side == GridSide.LONG else -1.0
         funding_pnl = -side_sign * effective_rate * notional
         state.realized_pnl += funding_pnl
+        state.funding_net += funding_pnl
         if funding_pnl < 0:
             state.funding_paid += abs(funding_pnl)
 
-    for candle in candles:
+    for index, candle in enumerate(candles):
         if not active:
             break
+
+        if funding_schedule:
+            apply_scheduled_funding(candle, _candle_window_end(candles, index))
 
         execute_stop_loss(candle)
 
@@ -882,6 +1118,11 @@ def run_backtest_for_optimization(
                 state.liquidation_count += 1
                 active = False
 
+        if active:
+            refresh_pending_orders(candle.timestamp, candle.close)
+        else:
+            pending_orders.clear()
+
         eq = equity_at(candle.close)
         equity_values.append(eq)
 
@@ -894,14 +1135,18 @@ def run_backtest_for_optimization(
 
     final_mark = candles[-1].close
     final_equity = equity_at(final_mark)
+    funding_statement_amount = _funding_statement_amount(state.funding_net)
+    trading_pnl_excluding_funding = state.realized_pnl - state.funding_net
+    total_return_usdt = trading_pnl_excluding_funding + unrealized_pnl(final_mark) - state.fees_paid - funding_statement_amount
 
     win_rate = state.winning_trades / state.total_closed_trades if state.total_closed_trades else 0.0
 
     summary = {
-        "total_return_usdt": float(final_equity - strategy.margin),
+        "total_return_usdt": float(total_return_usdt),
         "max_drawdown_pct": float(abs(min_drawdown) * 100.0),
         "win_rate": float(win_rate),
         "total_closed_trades": float(state.total_closed_trades),
+        "max_possible_loss_usdt": float(max_possible_loss_usdt),
     }
 
     return OptimizationBacktestEvaluation(summary=summary, equity_values=equity_values)

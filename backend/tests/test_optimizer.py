@@ -1,15 +1,20 @@
 from __future__ import annotations
 
+import time
 from datetime import datetime, timezone
 
 from app.core.optimization_schemas import (
     AnchorMode,
     OptimizationConfig,
+    OptimizationJobMeta,
+    OptimizationJobStatus,
     OptimizationMode,
+    OptimizationRequest,
     OptimizationResultRow,
     OptimizationTarget,
 )
-from app.core.schemas import Candle, CurvePoint, GridSide, StrategyConfig
+from app.core.schemas import Candle, CurvePoint, DataConfig, GridSide, StrategyConfig
+from app.optimizer import optimizer as optimizer_module
 from app.optimizer.optimizer import (
     _apply_constraints,
     _build_combinations,
@@ -79,6 +84,138 @@ def test_optimization_config_defaults_to_random_pruned_mode() -> None:
     cfg = OptimizationConfig()
     assert cfg.optimization_mode == OptimizationMode.RANDOM_PRUNED
     assert cfg.max_trials == 2_000
+
+
+def test_random_pruned_large_trial_budget_completes_without_runtime_error(monkeypatch) -> None:
+    candles = [
+        Candle(
+            timestamp=datetime(2026, 2, 1, 0, 0, tzinfo=timezone.utc),
+            open=68000,
+            high=68200,
+            low=67800,
+            close=68100,
+            volume=1.0,
+        ),
+        Candle(
+            timestamp=datetime(2026, 2, 1, 1, 0, tzinfo=timezone.utc),
+            open=68100,
+            high=68350,
+            low=67950,
+            close=68250,
+            volume=1.0,
+        ),
+        Candle(
+            timestamp=datetime(2026, 2, 1, 2, 0, tzinfo=timezone.utc),
+            open=68250,
+            high=68400,
+            low=68000,
+            close=68150,
+            volume=1.0,
+        ),
+        Candle(
+            timestamp=datetime(2026, 2, 1, 3, 0, tzinfo=timezone.utc),
+            open=68150,
+            high=68300,
+            low=67900,
+            close=68050,
+            volume=1.0,
+        ),
+    ]
+
+    class _StubEvaluator:
+        def __init__(self, *args, **kwargs) -> None:
+            self.engine = "stub"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        def run(self, tasks, *, batch_size=300, chunk_size=64, progress_hook=None):
+            total = len(tasks)
+            rows = []
+            for idx, task in enumerate(tasks, start=1):
+                rows.append(
+                    {
+                        "row_id": int(task["row_id"]),
+                        "ok": True,
+                        "summary": {
+                            "total_return_usdt": 12.0,
+                            "max_drawdown_pct": 3.0,
+                            "win_rate": 0.6,
+                            "total_closed_trades": 6,
+                        },
+                        "sharpe_ratio": 1.1,
+                        "return_drawdown_ratio": 4.0,
+                        "score": 4.0,
+                    }
+                )
+                if progress_hook:
+                    progress_hook(idx, total)
+            return rows
+
+    monkeypatch.setattr(optimizer_module, "load_candles", lambda data_cfg: candles)
+    monkeypatch.setattr(optimizer_module, "load_funding_rates", lambda data_cfg: [])
+    monkeypatch.setattr(optimizer_module, "CombinationEvaluator", _StubEvaluator)
+
+    strategy = StrategyConfig(
+        side=GridSide.SHORT,
+        lower=65000,
+        upper=71000,
+        grids=6,
+        leverage=8,
+        margin=1000,
+        stop_loss=72000,
+        use_base_position=True,
+        reopen_after_stop=False,
+        fee_rate=0.0004,
+        slippage=0.0002,
+        maintenance_margin_rate=0.005,
+    )
+    payload = OptimizationRequest(
+        base_strategy=strategy,
+        data=DataConfig(source="binance", symbol="BTCUSDT", interval="1h"),
+        optimization=OptimizationConfig(
+            optimization_mode=OptimizationMode.RANDOM_PRUNED,
+            leverage={"enabled": True, "values": [6, 8]},
+            grids={"enabled": True, "values": [6]},
+            band_width_pct={"enabled": True, "values": [8]},
+            stop_loss_ratio_pct={"enabled": True, "values": [1]},
+            optimize_base_position=False,
+            max_trials=10_000,
+            max_workers=1,
+            batch_size=50,
+            chunk_size=8,
+            walk_forward_enabled=False,
+            require_positive_return=False,
+            min_closed_trades=0,
+        ),
+    )
+
+    job_id = f"unit-random-pruned-{int(time.time() * 1000)}"
+    meta = OptimizationJobMeta(
+        job_id=job_id,
+        status=OptimizationJobStatus.PENDING,
+        created_at=datetime.now(timezone.utc),
+        total_combinations=0,
+    )
+
+    with optimizer_module._JOB_LOCK:
+        optimizer_module._JOBS[job_id] = optimizer_module._JobRecord(meta=meta, target=payload.optimization.target)
+
+    optimizer_module._run_job(job_id, payload)
+
+    with optimizer_module._JOB_LOCK:
+        record = optimizer_module._JOBS[job_id]
+        status = record.meta.status
+        error = record.meta.error
+        total_rows = len(record.rows)
+        optimizer_module._JOBS.pop(job_id, None)
+
+    assert status == OptimizationJobStatus.COMPLETED
+    assert error is None
+    assert total_rows >= 1
 
 
 def test_sharpe_ratio_positive_on_monotonic_growth() -> None:
@@ -212,8 +349,8 @@ def test_base_position_count_formula_case_65000_71000_12grids_67200() -> None:
     long_count, _ = _derive_base_position_info(long_base, current_price=67200)
     short_count, _ = _derive_base_position_info(short_base, current_price=67200)
 
-    assert long_count == 6
-    assert short_count == 3
+    assert long_count == 7
+    assert short_count == 4
 
 
 def test_build_combinations_uses_initial_close_price_for_base_position_meta() -> None:
@@ -231,8 +368,61 @@ def test_build_combinations_uses_initial_close_price_for_base_position_meta() ->
     )
 
     combos = _build_combinations(short_base, cfg, reference_price=68000, initial_price=70000)
-    assert combos[0]["meta"]["base_grid_count"] == 4
-    assert abs(combos[0]["meta"]["initial_position_size"] - 3333.3333333333335) < 1e-9
+    assert combos[0]["meta"]["base_grid_count"] == 5
+    assert abs(combos[0]["meta"]["initial_position_size"] - 4166.666666666667) < 1e-9
+
+
+def test_build_combinations_filters_by_max_allowed_loss() -> None:
+    strategy = _base_strategy(GridSide.SHORT).model_copy(
+        update={"lower": 65000, "upper": 71000, "grids": 6, "leverage": 15, "margin": 1000, "stop_loss": 72000}
+    )
+    cfg_tight = OptimizationConfig(
+        leverage={"enabled": True, "values": [15]},
+        grids={"enabled": True, "values": [6]},
+        band_width_pct={"enabled": False},
+        stop_loss_ratio_pct={"enabled": False},
+        max_allowed_loss_usdt=10.0,
+        walk_forward_enabled=False,
+    )
+    tight = _build_combinations(strategy, cfg_tight, reference_price=68000, initial_price=70000)
+    assert len(tight) == 0
+
+    cfg_loose = cfg_tight.model_copy(update={"max_allowed_loss_usdt": 50000.0})
+    loose = _build_combinations(strategy, cfg_loose, reference_price=68000, initial_price=70000)
+    assert len(loose) == 1
+    assert loose[0]["meta"]["max_possible_loss_usdt"] > 0
+
+
+def test_build_combinations_max_loss_can_use_anchor_price() -> None:
+    strategy = _base_strategy(GridSide.SHORT).model_copy(
+        update={"lower": 65000, "upper": 71000, "grids": 6, "leverage": 15, "margin": 1000, "stop_loss": 72000}
+    )
+    cfg = OptimizationConfig(
+        leverage={"enabled": True, "values": [15]},
+        grids={"enabled": True, "values": [6]},
+        band_width_pct={"enabled": False},
+        stop_loss_ratio_pct={"enabled": False},
+        max_allowed_loss_usdt=100.0,
+        walk_forward_enabled=False,
+    )
+
+    start_anchor = _build_combinations(
+        strategy,
+        cfg,
+        reference_price=68000,
+        initial_price=70000,
+        max_loss_initial_price=70000,
+    )
+    custom_anchor = _build_combinations(
+        strategy,
+        cfg,
+        reference_price=68000,
+        initial_price=70000,
+        max_loss_initial_price=68000,
+    )
+
+    assert len(start_anchor) == 1
+    assert len(custom_anchor) == 0
 
 
 def test_compute_robust_score_uses_validation_weight_and_gap_penalty() -> None:
@@ -264,6 +454,7 @@ def test_apply_constraints_marks_row_as_failed() -> None:
         range_upper=71000.0,
         stop_loss=71200.0,
         stop_loss_ratio_pct=1.0,
+        max_possible_loss_usdt=1200.0,
         total_return_usdt=-12.0,
         max_drawdown_pct=18.0,
         sharpe_ratio=-0.5,
@@ -282,6 +473,7 @@ def test_apply_constraints_marks_row_as_failed() -> None:
     cfg = OptimizationConfig(
         min_closed_trades=3,
         max_drawdown_pct_limit=10.0,
+        max_allowed_loss_usdt=1000.0,
         require_positive_return=True,
     )
 
@@ -294,6 +486,7 @@ def test_apply_constraints_marks_row_as_failed() -> None:
     assert "validation_drawdown>10.0" in row.constraint_violations
     assert "train_return<=0" in row.constraint_violations
     assert "validation_return<=0" in row.constraint_violations
+    assert "max_possible_loss>1000.0" in row.constraint_violations
 
 
 def test_limit_combinations_samples_and_renumbers() -> None:

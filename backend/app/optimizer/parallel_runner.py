@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import sys
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
@@ -19,6 +21,10 @@ _WORKER_FUNDING_RATES: List[tuple[datetime, float]] = []
 _WORKER_INTERVAL_VALUE: str = "1h"
 _WORKER_TARGET: OptimizationTarget = OptimizationTarget.RETURN_DRAWDOWN_RATIO
 _WORKER_CUSTOM_SCORE_EXPR: Optional[str] = None
+_ALLOW_PROCESS_FALLBACK_TO_THREAD = (
+    str(os.getenv("OPTIMIZER_PROCESS_FALLBACK_TO_THREAD", "1")).strip().lower() not in {"0", "false", "no", "off"}
+)
+_LOGGER = logging.getLogger(__name__)
 _STRATEGY_DEFAULTS: Dict[str, Any] = {
     name: field.default
     for name, field in StrategyConfig.model_fields.items()
@@ -214,10 +220,31 @@ def _chunksize(batch_len: int, worker_count: int) -> int:
 
 
 def _multiprocessing_context():
-    try:
-        return get_context("spawn")
-    except ValueError:
-        return get_context()
+    preferred = str(os.getenv("OPTIMIZER_MP_START_METHOD", "")).strip().lower()
+    candidates: list[str] = []
+    if preferred:
+        candidates.append(preferred)
+    if os.name == "nt":
+        candidates.append("spawn")
+    else:
+        if sys.platform == "darwin":
+            # On macOS, spawn/forkserver are generally more stable than fork for
+            # long-running scientific workloads and threaded web runtimes.
+            candidates.extend(["spawn", "forkserver", "fork"])
+        else:
+            # On Linux, fork/forkserver usually start faster than spawn.
+            candidates.extend(["fork", "forkserver", "spawn"])
+
+    tried: set[str] = set()
+    for method in candidates:
+        if not method or method in tried:
+            continue
+        tried.add(method)
+        try:
+            return get_context(method)
+        except ValueError:
+            continue
+    return get_context()
 
 
 def _serialize_candles(candles: List[Candle]) -> List[Dict[str, Any]]:
@@ -261,10 +288,12 @@ class CombinationEvaluator:
         self._target = target
         self._custom_score_expr = custom_score_expr
         self._worker_count = _resolve_worker_count(max_workers)
+        self._max_tasks_per_child = max(10, int(os.getenv("OPTIMIZER_WORKER_MAX_TASKS", "500")))
         self._pool: Optional[Pool] = None
         self._executor: Optional[ThreadPoolExecutor] = None
         self._uses_threads = False
         self._engine = "process"
+        self._last_pool_error: Optional[str] = None
 
     def __enter__(self) -> "CombinationEvaluator":
         try:
@@ -279,6 +308,7 @@ class CombinationEvaluator:
                     self._target.value,
                     self._custom_score_expr,
                 ),
+                maxtasksperchild=self._max_tasks_per_child,
             )
         except (PermissionError, OSError, RuntimeError):
             # Some restricted environments disallow process semaphore checks.
@@ -296,12 +326,61 @@ class CombinationEvaluator:
 
     def __exit__(self, exc_type, exc, tb) -> None:
         if self._pool is not None:
-            self._pool.close()
-            self._pool.join()
+            try:
+                self._pool.close()
+            except Exception:
+                try:
+                    self._pool.terminate()
+                except Exception:
+                    pass
+            try:
+                self._pool.join()
+            except Exception:
+                pass
             self._pool = None
         if self._executor is not None:
             self._executor.shutdown(wait=True)
             self._executor = None
+
+    def _pool_worker_exit_diagnostics(self) -> str:
+        if self._pool is None:
+            return "pool=none"
+        workers = getattr(self._pool, "_pool", None)
+        if not isinstance(workers, list):
+            return "pool=unknown"
+        details: List[str] = []
+        for proc in workers:
+            pid = getattr(proc, "pid", None)
+            exitcode = getattr(proc, "exitcode", None)
+            try:
+                alive = bool(proc.is_alive())
+            except Exception:
+                alive = False
+            details.append(f"pid={pid},exit={exitcode},alive={int(alive)}")
+        return "; ".join(details) if details else "pool=empty"
+
+    def _enable_thread_fallback(self) -> None:
+        if self._pool is not None:
+            try:
+                self._pool.terminate()
+            except Exception:
+                pass
+            try:
+                self._pool.join()
+            except Exception:
+                pass
+            self._pool = None
+        _init_worker(
+            self._candles_payload,
+            self._funding_payload,
+            self._interval_value,
+            self._target.value,
+            self._custom_score_expr,
+        )
+        if self._executor is None:
+            self._executor = ThreadPoolExecutor(max_workers=self._worker_count)
+        self._uses_threads = True
+        self._engine = "thread-fallback"
 
     def run(
         self,
@@ -319,9 +398,15 @@ class CombinationEvaluator:
         results: List[Dict[str, Any]] = []
         total = len(tasks)
         done = 0
+        seen_row_ids: set[int] = set()
 
         def emit_progress(item: Dict[str, Any]) -> None:
             nonlocal done
+            row_id = int(item.get("row_id", -1))
+            if row_id > 0:
+                if row_id in seen_row_ids:
+                    return
+                seen_row_ids.add(row_id)
             results.append(item)
             done += 1
             if progress_hook:
@@ -338,15 +423,35 @@ class CombinationEvaluator:
         if self._pool is None:
             raise RuntimeError("process evaluator is not initialized")
 
-        for batch in _iter_batches(tasks, effective_batch_size):
-            step_chunksize = forced_chunksize if chunk_size > 0 else _chunksize(len(batch), self._worker_count)
-            for item in self._pool.imap_unordered(_run_single_combination, batch, chunksize=step_chunksize):
-                emit_progress(item)
+        try:
+            for batch in _iter_batches(tasks, effective_batch_size):
+                step_chunksize = forced_chunksize if chunk_size > 0 else _chunksize(len(batch), self._worker_count)
+                for item in self._pool.imap_unordered(_run_single_combination, batch, chunksize=step_chunksize):
+                    emit_progress(item)
+        except Exception as exc:
+            diagnostics = self._pool_worker_exit_diagnostics()
+            self._last_pool_error = f"{type(exc).__name__}: {exc}; workers=[{diagnostics}]"
+            _LOGGER.warning("process evaluator failed, switching to thread fallback: %s", self._last_pool_error)
+            if not _ALLOW_PROCESS_FALLBACK_TO_THREAD:
+                raise RuntimeError(f"process evaluator failed: {self._last_pool_error}") from exc
+
+            self._enable_thread_fallback()
+            if self._executor is None:
+                raise RuntimeError(f"thread fallback unavailable after pool failure: {self._last_pool_error}") from exc
+
+            pending = [task for task in tasks if int(task.get("row_id", -1)) not in seen_row_ids]
+            for batch in _iter_batches(pending, effective_batch_size):
+                for item in self._executor.map(_run_single_combination, batch):
+                    emit_progress(item)
         return results
 
     @property
     def engine(self) -> str:
         return self._engine
+
+    @property
+    def last_pool_error(self) -> Optional[str]:
+        return self._last_pool_error
 
 
 def run_combinations_parallel(

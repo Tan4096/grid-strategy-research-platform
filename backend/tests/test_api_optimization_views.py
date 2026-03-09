@@ -8,7 +8,9 @@ import pytest
 from app.core.optimization_schemas import (
     OptimizationJobMeta,
     OptimizationJobStatus,
+    OptimizationProgressResponse,
     OptimizationResultRow,
+    OptimizationStartResponse,
     OptimizationTarget,
 )
 from app.main import app
@@ -170,3 +172,387 @@ def test_optimization_rows_endpoint_returns_404_for_unknown_job() -> None:
     client = TestClient(app)
     response = client.get("/api/v1/optimization/missing-job/rows")
     assert response.status_code == 404
+
+
+def test_optimization_history_endpoint_returns_cursor_page(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = TestClient(app)
+    now = datetime.now(timezone.utc)
+    sample_item = OptimizationProgressResponse(
+        job=OptimizationJobMeta(
+            job_id="job-history-page",
+            status=OptimizationJobStatus.COMPLETED,
+            created_at=now,
+            started_at=now,
+            finished_at=now,
+            progress=100.0,
+            total_steps=1,
+            completed_steps=1,
+            message="done",
+            error=None,
+            total_combinations=1,
+            trials_completed=1,
+            trials_pruned=0,
+            pruning_ratio=0.0,
+        ),
+        target=OptimizationTarget.RETURN_DRAWDOWN_RATIO,
+    )
+    monkeypatch.setattr(
+        "app.api.routes.list_optimization_history",
+        lambda limit, cursor, status: ([sample_item], "next-cursor-token"),
+    )
+
+    response = client.get(
+        "/api/v1/optimization-history",
+        params={"limit": 10, "cursor": "prev-cursor-token", "status": "completed"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["next_cursor"] == "next-cursor-token"
+    assert len(payload["items"]) == 1
+    assert payload["items"][0]["job"]["job_id"] == "job-history-page"
+
+
+def test_optimization_history_clear_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = TestClient(app)
+    monkeypatch.setenv("APP_PUBLIC_MODE", "0")
+    monkeypatch.setattr(
+        "app.api.routes.clear_optimization_history",
+        lambda: {
+            "requested": 5,
+            "deleted": 4,
+            "failed": 1,
+            "deleted_job_ids": ["a", "b", "c", "d"],
+            "failed_job_ids": ["e"],
+            "failed_items": [
+                {
+                    "job_id": "e",
+                    "reason_code": "JOB_NOT_FINISHED",
+                    "reason_message": "running",
+                }
+            ],
+            "skipped": 1,
+            "skipped_job_ids": ["e"],
+            "soft_delete_ttl_hours": 48,
+        },
+    )
+
+    response = client.delete(
+        "/api/v1/optimization-history",
+        headers={"X-Confirm-Action": "CLEAR_ALL_OPTIMIZATION_HISTORY"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["requested"] == 5
+    assert payload["deleted"] == 4
+    assert payload["failed"] == 1
+    assert payload["deleted_job_ids"] == ["a", "b", "c", "d"]
+    assert payload["failed_job_ids"] == ["e"]
+    assert payload["failed_items"] == [
+        {
+            "job_id": "e",
+            "reason_code": "JOB_NOT_FINISHED",
+            "reason_message": "running",
+        }
+    ]
+    assert payload["skipped"] == 1
+    assert payload["skipped_job_ids"] == ["e"]
+    assert payload["soft_delete_ttl_hours"] == 48
+    assert isinstance(payload.get("operation_id"), str) and payload["operation_id"]
+    assert isinstance(payload.get("undo_until"), str) and payload["undo_until"]
+    assert isinstance(payload.get("summary_text"), str) and payload["summary_text"]
+    assert isinstance(payload.get("request_id"), str) and payload["request_id"]
+    assert payload.get("meta") == {"retryable": True}
+
+
+def test_optimization_history_clear_selected_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = TestClient(app)
+    monkeypatch.setenv("APP_PUBLIC_MODE", "0")
+    monkeypatch.setattr(
+        "app.api.routes.clear_selected_optimization_history",
+        lambda ids: {
+            "requested": len(ids),
+            "deleted": 1,
+            "failed": max(0, len(ids) - 1),
+            "deleted_job_ids": ids[:1],
+            "failed_job_ids": ids[1:],
+            "failed_items": [
+                {
+                    "job_id": item,
+                    "reason_code": "MOCK_FAILED",
+                    "reason_message": "mock failure",
+                }
+                for item in ids[1:]
+            ],
+            "skipped": 0,
+            "skipped_job_ids": [],
+            "soft_delete_ttl_hours": 48,
+        },
+    )
+
+    response = client.delete(
+        "/api/v1/optimization-history/selected",
+        params=[("job_id", "a"), ("job_id", "b")],
+        headers={
+            "X-Confirm-Action": "CLEAR_SELECTED_OPTIMIZATION_HISTORY",
+            "X-Confirm-Count": "2",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["requested"] == 2
+    assert payload["deleted"] == 1
+    assert payload["failed"] == 1
+    assert payload["deleted_job_ids"] == ["a"]
+    assert payload["failed_job_ids"] == ["b"]
+    assert payload["failed_items"] == [
+        {
+            "job_id": "b",
+            "reason_code": "MOCK_FAILED",
+            "reason_message": "mock failure",
+        }
+    ]
+    assert payload["skipped"] == 0
+    assert payload["skipped_job_ids"] == []
+    assert payload["soft_delete_ttl_hours"] == 48
+    assert payload["summary_text"] == "清空完成：请求 2 条，成功 1 条，失败 1 条。"
+    assert isinstance(payload["operation_id"], str) and payload["operation_id"]
+    assert isinstance(payload["undo_until"], str) and payload["undo_until"]
+    assert isinstance(payload["request_id"], str) and payload["request_id"]
+    assert payload["meta"] == {"retryable": True}
+
+
+def test_optimization_history_restore_selected_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = TestClient(app)
+    monkeypatch.setattr(
+        "app.api.routes.restore_selected_optimization_history",
+        lambda ids: {
+            "requested": len(ids),
+            "restored": 1,
+            "failed": max(0, len(ids) - 1),
+            "restored_job_ids": ids[:1],
+            "failed_job_ids": ids[1:],
+            "failed_items": [
+                {
+                    "job_id": item,
+                    "reason_code": "NOT_FOUND_OR_NOT_DELETED",
+                    "reason_message": "mock not deleted",
+                }
+                for item in ids[1:]
+            ],
+        },
+    )
+
+    response = client.post(
+        "/api/v1/optimization-history/restore-selected",
+        params=[("job_id", "a"), ("job_id", "b")],
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["requested"] == 2
+    assert payload["restored"] == 1
+    assert payload["failed"] == 1
+    assert payload["restored_job_ids"] == ["a"]
+    assert payload["failed_job_ids"] == ["b"]
+    assert payload["failed_items"] == [
+        {
+            "job_id": "b",
+            "reason_code": "NOT_FOUND_OR_NOT_DELETED",
+            "reason_message": "mock not deleted",
+        }
+    ]
+    assert payload["summary_text"] == "恢复完成：请求 2 条，成功 1 条，失败 1 条。"
+    assert isinstance(payload["operation_id"], str) and payload["operation_id"]
+    assert isinstance(payload["request_id"], str) and payload["request_id"]
+    assert payload["meta"] == {"retryable": True}
+
+
+def test_optimization_operations_detail_and_list_endpoints(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = TestClient(app)
+    monkeypatch.setenv("APP_PUBLIC_MODE", "0")
+    monkeypatch.setattr(
+        "app.api.routes.clear_selected_optimization_history",
+        lambda ids: {
+            "requested": len(ids),
+            "deleted": len(ids),
+            "failed": 0,
+            "deleted_job_ids": ids,
+            "failed_job_ids": [],
+            "failed_items": [],
+            "skipped": 0,
+            "skipped_job_ids": [],
+            "soft_delete_ttl_hours": 48,
+        },
+    )
+
+    clear_response = client.delete(
+        "/api/v1/optimization-history/selected",
+        params=[("job_id", "job-ops-a"), ("job_id", "job-ops-b")],
+        headers={
+            "X-Confirm-Action": "CLEAR_SELECTED_OPTIMIZATION_HISTORY",
+            "X-Confirm-Count": "2",
+        },
+    )
+    assert clear_response.status_code == 200
+    operation_id = clear_response.json()["operation_id"]
+
+    detail_response = client.get(f"/api/v1/operations/{operation_id}")
+    assert detail_response.status_code == 200
+    detail = detail_response.json()
+    assert detail["operation_id"] == operation_id
+    assert detail["action"] == "clear_selected"
+    assert detail["status"] == "success"
+    assert detail["requested"] == 2
+    assert detail["success"] == 2
+    assert detail["failed"] == 0
+    assert detail["meta"] == {"retryable": False}
+
+    list_response = client.get(
+        "/api/v1/operations",
+        params={"limit": 20, "action": "clear_selected", "status": "success"},
+    )
+    assert list_response.status_code == 200
+    page = list_response.json()
+    assert isinstance(page.get("items"), list)
+    assert any(item.get("operation_id") == operation_id for item in page["items"])
+
+
+def test_optimization_operations_list_supports_cursor(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = TestClient(app)
+    monkeypatch.setenv("APP_PUBLIC_MODE", "0")
+    monkeypatch.setattr(
+        "app.api.routes.clear_selected_optimization_history",
+        lambda ids: {
+            "requested": len(ids),
+            "deleted": len(ids),
+            "failed": 0,
+            "deleted_job_ids": ids,
+            "failed_job_ids": [],
+            "failed_items": [],
+            "skipped": 0,
+            "skipped_job_ids": [],
+            "soft_delete_ttl_hours": 48,
+        },
+    )
+
+    first_clear = client.delete(
+        "/api/v1/optimization-history/selected",
+        params=[("job_id", "job-cursor-a")],
+        headers={
+            "X-Confirm-Action": "CLEAR_SELECTED_OPTIMIZATION_HISTORY",
+            "X-Confirm-Count": "1",
+        },
+    )
+    assert first_clear.status_code == 200
+    first_operation_id = first_clear.json()["operation_id"]
+
+    second_clear = client.delete(
+        "/api/v1/optimization-history/selected",
+        params=[("job_id", "job-cursor-b")],
+        headers={
+            "X-Confirm-Action": "CLEAR_SELECTED_OPTIMIZATION_HISTORY",
+            "X-Confirm-Count": "1",
+        },
+    )
+    assert second_clear.status_code == 200
+
+    page1 = client.get("/api/v1/operations", params={"limit": 1, "action": "clear_selected"})
+    assert page1.status_code == 200
+    payload1 = page1.json()
+    assert len(payload1["items"]) == 1
+    assert isinstance(payload1["next_cursor"], str) and payload1["next_cursor"]
+
+    page2 = client.get(
+        "/api/v1/operations",
+        params={
+            "limit": 10,
+            "action": "clear_selected",
+            "cursor": payload1["next_cursor"],
+        },
+    )
+    assert page2.status_code == 200
+    payload2 = page2.json()
+    assert isinstance(payload2["items"], list)
+    assert all(item.get("operation_id") != payload1["items"][0]["operation_id"] for item in payload2["items"])
+    assert any(
+        item.get("operation_id") == first_operation_id or item.get("operation_id") == second_clear.json()["operation_id"]
+        for item in payload2["items"]
+    )
+
+
+def test_optimization_operation_detail_returns_404_for_missing_id() -> None:
+    client = TestClient(app)
+    response = client.get("/api/v1/operations/not-found-operation-id")
+    assert response.status_code == 404
+    payload = response.json()
+    assert payload["code"] == "OPERATION_NOT_FOUND"
+    assert payload["meta"]["retryable"] is False
+
+
+def test_optimization_start_honors_idempotency_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = TestClient(app)
+    calls = {"count": 0}
+
+    def fake_start(_payload):
+        calls["count"] += 1
+        return OptimizationStartResponse(
+            job_id=f"opt-job-{calls['count']}",
+            status=OptimizationJobStatus.PENDING,
+            total_combinations=0,
+            idempotency_reused=False,
+        )
+
+    monkeypatch.setattr("app.api.routes.start_optimization_job", fake_start)
+
+    payload = {
+        "base_strategy": {
+            "side": "short",
+            "lower": 65000,
+            "upper": 71000,
+            "grids": 6,
+            "leverage": 8,
+            "margin": 1000,
+            "stop_loss": 72000,
+            "use_base_position": False,
+            "strict_risk_control": True,
+            "reopen_after_stop": True,
+            "fee_rate": 0.0004,
+            "maker_fee_rate": 0.0002,
+            "taker_fee_rate": 0.0004,
+            "slippage": 0.0002,
+            "maintenance_margin_rate": 0.005,
+            "funding_rate_per_8h": 0.0,
+            "funding_interval_hours": 8,
+            "price_tick_size": 0.1,
+            "quantity_step_size": 0.0001,
+            "min_notional": 5.0,
+        },
+        "data": {
+            "source": "binance",
+            "symbol": "BTCUSDT",
+            "interval": "1h",
+            "lookback_days": 14,
+        },
+        "optimization": {"optimization_mode": "random_pruned"},
+    }
+
+    headers = {"Idempotency-Key": "same-key-opt"}
+    first = client.post("/api/v1/optimization/start", json=payload, headers=headers)
+    second = client.post("/api/v1/optimization/start", json=payload, headers=headers)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["job_id"] == second.json()["job_id"]
+    assert calls["count"] == 1
+
+
+def test_metrics_endpoint_returns_prometheus_payload() -> None:
+    client = TestClient(app)
+    response = client.get("/api/v1/metrics")
+
+    assert response.status_code == 200
+    assert "text/plain" in response.headers["content-type"]
+    assert "# HELP app_http_requests_total" in response.text

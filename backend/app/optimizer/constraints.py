@@ -75,5 +75,11 @@ def apply_constraints(row: OptimizationResultRow, optimization: OptimizationConf
     ):
         violations.append("validation_return<=0")
 
+    if (
+        optimization.max_allowed_loss_usdt is not None
+        and row.max_possible_loss_usdt > optimization.max_allowed_loss_usdt
+    ):
+        violations.append(f"max_possible_loss>{optimization.max_allowed_loss_usdt}")
+
     row.constraint_violations = violations
     row.passes_constraints = len(violations) == 0

@@ -5,10 +5,12 @@ import os
 import random
 import re
 import threading
+import time
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from itertools import product
 from pathlib import Path
 from tempfile import gettempdir
 from typing import Any, Dict, List, Optional, Tuple
@@ -46,7 +48,22 @@ from app.optimizer.constraints import (
 )
 from app.optimizer.csv_export import export_rows_csv as export_rows_csv_text
 from app.optimizer.csv_export import iter_rows_csv as iter_rows_csv_stream
-from app.optimizer.job_store import list_recent_job_snapshots, load_job_snapshot, save_job_snapshot
+from app.optimizer.job_store import (
+    count_active_job_snapshots,
+    get_operation_event,
+    list_operation_events_cursor,
+    optimization_soft_delete_ttl_hours,
+    soft_delete_all_terminal_job_snapshots_with_details,
+    soft_delete_terminal_job_snapshots_with_details,
+    restore_job_snapshots_with_details,
+    is_job_cancel_requested,
+    list_recent_job_snapshots_cursor,
+    list_recoverable_job_snapshots,
+    load_job_snapshot,
+    save_job_snapshot,
+    save_operation_event,
+    set_job_cancel_requested,
+)
 from app.optimizer.parallel_runner import CombinationEvaluator, run_combinations_parallel
 from app.optimizer.persistence import (
     PersistThrottleSettings,
@@ -59,6 +76,7 @@ from app.optimizer.scoring import compute_return_drawdown_ratio, compute_score, 
 from app.optimizer.sampling import (
     ParameterSpace as _ParameterSpace,
     build_combinations as _build_combinations,
+    build_combinations_limited as _build_combinations_limited,
     build_single_combo as _build_single_combo,
     combo_signature as _combo_signature,
     derive_band_width_pct as _derive_band_width_pct,
@@ -80,8 +98,11 @@ from app.optimizer.sampling import (
 from app.optimizer.status_views import build_heatmap as build_heatmap_view
 from app.optimizer.status_views import paginate_rows as paginate_rows_view
 from app.optimizer.status_views import score_sort_key as score_sort_key_view
+from app.core.metrics import observe_job_duration, set_queue_depth
+from app.core.task_backend import use_arq_for_optimization
 from app.services.backtest_engine import run_backtest, run_backtest_for_optimization
 from app.services.data_loader import load_candles, load_funding_rates
+from app.tasks.arq_queue import enqueue_optimization_job
 
 
 @dataclass
@@ -107,6 +128,7 @@ class _JobRecord:
 
 _JOB_LOCK = threading.Lock()
 _JOBS: Dict[str, _JobRecord] = {}
+_JOB_THREADS: Dict[str, threading.Thread] = {}
 _FINISHED_JOB_STATUSES = {
     OptimizationJobStatus.COMPLETED,
     OptimizationJobStatus.FAILED,
@@ -118,16 +140,30 @@ _LAST_PERSIST_AT: Dict[str, float] = {}
 _LAST_PERSIST_PROGRESS: Dict[str, float] = {}
 _LAST_PERSIST_COMPLETED_STEPS: Dict[str, int] = {}
 _META_PERSIST_MIN_INTERVAL_SECONDS = max(
-    0.2, float(os.getenv("OPTIMIZATION_META_PERSIST_MIN_INTERVAL_SECONDS", "2.0"))
+    0.2, float(os.getenv("OPTIMIZATION_META_PERSIST_MIN_INTERVAL_SECONDS", "0.5"))
 )
 _META_PERSIST_MIN_PROGRESS_DELTA = max(
-    0.05, float(os.getenv("OPTIMIZATION_META_PERSIST_MIN_PROGRESS_DELTA", "0.5"))
+    0.05, float(os.getenv("OPTIMIZATION_META_PERSIST_MIN_PROGRESS_DELTA", "0.1"))
 )
-_META_PERSIST_MIN_STEP_DELTA = max(1, int(os.getenv("OPTIMIZATION_META_PERSIST_MIN_STEP_DELTA", "128")))
+_META_PERSIST_MIN_STEP_DELTA = max(1, int(os.getenv("OPTIMIZATION_META_PERSIST_MIN_STEP_DELTA", "16")))
+_RECOVERY_ENABLED = (os.getenv("OPTIMIZATION_RECOVERY_ENABLED", "1").strip().lower() not in {"0", "false", "no", "off"})
+_RECOVERY_MAX_JOBS = max(0, int(os.getenv("OPTIMIZATION_RECOVERY_MAX_JOBS", "2")))
+_RECOVERY_SCAN_LIMIT = max(_RECOVERY_MAX_JOBS, int(os.getenv("OPTIMIZATION_RECOVERY_SCAN_LIMIT", "20")))
 
 
 class JobCancelledError(RuntimeError):
     pass
+
+
+def _refresh_queue_depth_locked() -> None:
+    if use_arq_for_optimization():
+        try:
+            running_jobs = count_active_job_snapshots()
+        except Exception:
+            running_jobs = sum(1 for record in _JOBS.values() if record.meta.status not in _FINISHED_JOB_STATUSES)
+    else:
+        running_jobs = sum(1 for record in _JOBS.values() if record.meta.status not in _FINISHED_JOB_STATUSES)
+    set_queue_depth(queue_name="optimization", depth=running_jobs)
 
 
 def _sanitize_study_key(value: str) -> str:
@@ -186,6 +222,7 @@ def _build_row_from_eval(combo: dict, eval_payload: dict) -> OptimizationResultR
             range_upper=meta["range_upper"],
             stop_loss=meta["stop_loss"],
             stop_loss_ratio_pct=meta["stop_loss_ratio_pct"],
+            max_possible_loss_usdt=float(meta.get("max_possible_loss_usdt", 0.0)),
             total_return_usdt=-1e12,
             max_drawdown_pct=1e12,
             sharpe_ratio=0.0,
@@ -211,6 +248,7 @@ def _build_row_from_eval(combo: dict, eval_payload: dict) -> OptimizationResultR
         range_upper=meta["range_upper"],
         stop_loss=meta["stop_loss"],
         stop_loss_ratio_pct=meta["stop_loss_ratio_pct"],
+        max_possible_loss_usdt=float(meta.get("max_possible_loss_usdt", 0.0)),
         total_return_usdt=float(summary["total_return_usdt"]),
         max_drawdown_pct=float(summary["max_drawdown_pct"]),
         sharpe_ratio=float(eval_payload["sharpe_ratio"]),
@@ -285,6 +323,7 @@ def _load_record_from_snapshot(job_id: str) -> Optional[_JobRecord]:
             TimeWindowInfo.model_validate(snapshot["validation_window"]) if snapshot.get("validation_window") else None
         )
         request_payload = snapshot.get("request_payload")
+        cancel_requested = bool(snapshot.get("cancel_requested", False))
     except Exception:
         return None
 
@@ -292,6 +331,7 @@ def _load_record_from_snapshot(job_id: str) -> Optional[_JobRecord]:
         meta=meta,
         target=target,
         request_payload=request_payload if isinstance(request_payload, dict) else None,
+        cancel_requested=cancel_requested,
         rows=rows,
         best_row=best_row,
         best_validation_row=best_validation_row,
@@ -306,13 +346,74 @@ def _load_record_from_snapshot(job_id: str) -> Optional[_JobRecord]:
     return record
 
 
-def _drop_persist_tracking(job_id: str) -> None:
+def _refresh_record_from_snapshot_for_remote_worker_locked(job_id: str, record: _JobRecord) -> _JobRecord:
+    # NOTE:
+    # Even outside ARQ mode, status polling can hit a different backend process
+    # (e.g. accidental multi-worker deployment). In that case local `_JOBS`
+    # cache may lag behind and must be refreshed from persisted snapshot.
+    worker = _JOB_THREADS.get(job_id)
+    if worker is not None and worker.is_alive():
+        return record
+    if record.meta.status in _FINISHED_JOB_STATUSES:
+        return record
+
+    loaded = _load_record_from_snapshot(job_id)
+    if loaded is None:
+        return record
+
+    current_progress = float(record.meta.progress or 0.0)
+    loaded_progress = float(loaded.meta.progress or 0.0)
+    current_steps = int(record.meta.completed_steps or 0)
+    loaded_steps = int(loaded.meta.completed_steps or 0)
+
+    should_replace = False
+    if loaded.meta.status in _FINISHED_JOB_STATUSES and record.meta.status not in _FINISHED_JOB_STATUSES:
+        should_replace = True
+    elif loaded_steps > current_steps:
+        should_replace = True
+    elif loaded_progress > current_progress + 1e-6:
+        should_replace = True
+    elif loaded.meta.started_at and not record.meta.started_at:
+        should_replace = True
+    elif loaded.meta.finished_at and not record.meta.finished_at:
+        should_replace = True
+    elif loaded.meta.message != record.meta.message:
+        should_replace = True
+    elif loaded.meta.error != record.meta.error:
+        should_replace = True
+
+    if should_replace:
+        _JOBS[job_id] = loaded
+        return loaded
+    return record
+
+
+def _drop_job_resources(job_id: str) -> None:
+    _JOB_THREADS.pop(job_id, None)
+    _refresh_queue_depth_locked()
     drop_persist_tracking_view(
         job_id,
         last_persist_at=_LAST_PERSIST_AT,
         last_persist_progress=_LAST_PERSIST_PROGRESS,
         last_persist_completed_steps=_LAST_PERSIST_COMPLETED_STEPS,
     )
+
+
+def _mark_job_recovery_failed(job_id: str, message: str) -> None:
+    with _JOB_LOCK:
+        record = _JOBS.get(job_id)
+        if record is None:
+            loaded = _load_record_from_snapshot(job_id)
+            if loaded is None:
+                return
+            record = loaded
+            _JOBS[job_id] = record
+        record.meta.status = OptimizationJobStatus.FAILED
+        record.meta.finished_at = datetime.now(timezone.utc)
+        record.meta.error = message
+        record.meta.message = "Optimization failed"
+        _persist_record_snapshot(record, include_rows=True, force=True)
+        _refresh_queue_depth_locked()
 
 
 def _cleanup_jobs_locked(now: Optional[datetime] = None) -> None:
@@ -322,14 +423,29 @@ def _cleanup_jobs_locked(now: Optional[datetime] = None) -> None:
         ttl_seconds=_JOB_RETENTION_SECONDS,
         max_records=_JOB_MAX_RECORDS,
         finished_statuses=_FINISHED_JOB_STATUSES,
-        on_drop_job=_drop_persist_tracking,
+        on_drop_job=_drop_job_resources,
     )
+    _refresh_queue_depth_locked()
 
 
 def _is_cancel_requested(job_id: str) -> bool:
+    record: Optional[_JobRecord]
     with _JOB_LOCK:
         record = _JOBS.get(job_id)
-        return bool(record.cancel_requested) if record else False
+        if record is not None and record.cancel_requested:
+            return True
+        if not use_arq_for_optimization():
+            return False
+    try:
+        requested = is_job_cancel_requested(job_id)
+    except Exception:
+        return False
+    if requested and record is not None:
+        with _JOB_LOCK:
+            latest = _JOBS.get(job_id)
+            if latest is not None:
+                latest.cancel_requested = True
+    return requested
 
 
 def _raise_if_cancelled(job_id: str) -> None:
@@ -347,20 +463,70 @@ def _update_job_meta(job_id: str, **kwargs: object) -> None:
         force_persist = bool(
             {"status", "started_at", "finished_at", "error", "message", "total_steps"} & set(kwargs.keys())
         )
+        if not force_persist:
+            force_persist = bool(
+                {"progress", "completed_steps", "trials_completed", "trials_pruned", "pruning_ratio"}
+                & set(kwargs.keys())
+            )
         _persist_record_snapshot(record, include_rows=False, force=force_persist)
+        _refresh_queue_depth_locked()
+
+
+def _ensure_running_job_alive_locked(job_id: str, record: _JobRecord) -> None:
+    if record.meta.status not in {OptimizationJobStatus.PENDING, OptimizationJobStatus.RUNNING}:
+        return
+    if record.meta.status == OptimizationJobStatus.PENDING and record.meta.started_at is None:
+        return
+    worker = _JOB_THREADS.get(job_id)
+    # NOTE:
+    # Status polling can hit a different backend process than the one that started the
+    # optimization thread. In that case `_JOB_THREADS` won't have this job_id locally.
+    # Missing local handle must NOT be treated as worker exit.
+    if worker is None:
+        return
+    if worker.is_alive():
+        return
+    if record.meta.status in _FINISHED_JOB_STATUSES:
+        return
+    record.meta.status = OptimizationJobStatus.FAILED
+    record.meta.finished_at = datetime.now(timezone.utc)
+    if not record.meta.error:
+        record.meta.error = "optimization worker not running"
+    record.meta.message = "Optimization failed: worker exited unexpectedly"
+    _persist_record_snapshot(record, include_rows=True, force=True)
 
 
 def _run_job(job_id: str, payload: OptimizationRequest) -> None:
+    started_monotonic = time.perf_counter()
     try:
         _raise_if_cancelled(job_id)
         started = datetime.now(timezone.utc)
-        _update_job_meta(job_id, status=OptimizationJobStatus.RUNNING, started_at=started, message="Loading candles")
+        _update_job_meta(
+            job_id,
+            status=OptimizationJobStatus.RUNNING,
+            started_at=started,
+            message=(
+                "Loading candles "
+                f"({payload.data.source.value}:{payload.data.symbol.upper()} {payload.data.interval.value})"
+            ),
+            progress=0.0,
+        )
 
         _raise_if_cancelled(job_id)
         candles = load_candles(payload.data)
         if len(candles) < 4:
             raise ValueError("insufficient candle data for optimization")
+        _update_job_meta(
+            job_id,
+            message=f"Candles loaded ({len(candles)}), loading funding rates",
+            progress=1.0,
+        )
         funding_rates = load_funding_rates(payload.data)
+        _update_job_meta(
+            job_id,
+            message=f"Funding loaded ({len(funding_rates)}), preparing optimizer",
+            progress=2.0,
+        )
 
         train_candles = candles
         validation_candles: List[Candle] = []
@@ -373,28 +539,47 @@ def _run_job(job_id: str, payload: OptimizationRequest) -> None:
         optimization = payload.optimization
         reference_price = _resolve_anchor_price(candles, payload.optimization)
         initial_price = train_candles[0].close
+        max_loss_initial_price = reference_price
         progress_lock = threading.Lock()
         completed_steps = 0
         total_steps = 1
+        progress_emit_step = 1
+        last_progress_emit_steps = -1
+        last_progress_emit_ts = 0.0
 
         def set_total_steps(new_total: int) -> None:
-            nonlocal total_steps, completed_steps
+            nonlocal total_steps, completed_steps, progress_emit_step
             with progress_lock:
                 total_steps = max(1, int(new_total))
                 completed_steps = min(completed_steps, total_steps)
                 progress = (completed_steps / total_steps) * 100.0
+                # Emit roughly 0.5% step granularity for large jobs to reduce lock churn.
+                progress_emit_step = max(1, total_steps // 200)
             _update_job_meta(job_id, total_steps=total_steps, completed_steps=completed_steps, progress=progress)
 
         def advance(step_done: int, step_total: int, stage_offset: int) -> None:
-            nonlocal completed_steps
+            nonlocal completed_steps, last_progress_emit_steps, last_progress_emit_ts
             _raise_if_cancelled(job_id)
+            now = time.perf_counter()
             with progress_lock:
                 completed_steps = min(stage_offset + step_done, total_steps)
                 progress = (completed_steps / total_steps) * 100.0 if total_steps else 100.0
-            _update_job_meta(job_id, completed_steps=completed_steps, progress=progress)
+                should_emit = (
+                    completed_steps >= total_steps
+                    or step_done >= step_total
+                    or completed_steps <= 0
+                    or (completed_steps - last_progress_emit_steps) >= progress_emit_step
+                    or (now - last_progress_emit_ts) >= 0.25
+                )
+                if should_emit:
+                    last_progress_emit_steps = completed_steps
+                    last_progress_emit_ts = now
+            if should_emit:
+                _update_job_meta(job_id, completed_steps=completed_steps, progress=progress)
 
         generated_combinations = 0
         sampled_combinations = 0
+        max_loss_hint: Optional[str] = None
         row_lookup: Dict[int, OptimizationResultRow] = {}
         combo_by_id: Dict[int, dict] = {}
         best_score_progression: List[OptimizationProgressPoint] = []
@@ -405,15 +590,67 @@ def _run_job(job_id: str, payload: OptimizationRequest) -> None:
 
         if optimization.optimization_mode == OptimizationMode.GRID:
             _raise_if_cancelled(job_id)
-            combos = _build_combinations(payload.base_strategy, optimization, reference_price, initial_price)
+            parameter_space = _resolve_parameter_space(payload.base_strategy, optimization, reference_price)
+            raw_space_combinations = _total_space_combinations(parameter_space)
+            # For very large cartesian spaces, avoid full materialization before limit.
+            # Build only up to max_combinations directly when auto-limit is enabled.
+            if optimization.auto_limit_combinations and raw_space_combinations > optimization.max_combinations:
+                _update_job_meta(
+                    job_id,
+                    message=(
+                        "Preparing optimizer "
+                        f"(sampling up to {optimization.max_combinations} from space={raw_space_combinations})"
+                    ),
+                )
+                combos, _ = _build_combinations_limited(
+                    base_strategy=payload.base_strategy,
+                    optimization=optimization,
+                    reference_price=reference_price,
+                    initial_price=initial_price,
+                    max_loss_initial_price=max_loss_initial_price,
+                    max_count=int(optimization.max_combinations),
+                    seed=optimization.random_seed,
+                )
+                generated_combinations = raw_space_combinations
+                sampled_combinations = len(combos)
+            else:
+                _update_job_meta(
+                    job_id,
+                    message=f"Preparing optimizer (building combinations from space={raw_space_combinations})",
+                )
+                combos = _build_combinations(
+                    payload.base_strategy,
+                    optimization,
+                    reference_price,
+                    initial_price,
+                    max_loss_initial_price=max_loss_initial_price,
+                )
+                generated_combinations = len(combos)
+                sampled_combinations = generated_combinations
+
             if not combos:
+                if optimization.max_allowed_loss_usdt is not None:
+                    raise ValueError(
+                        "最大亏损数额约束过严，当前参数空间没有可执行组合。"
+                        "请降低杠杆/保证金，或提高“最大亏损数额”后重试。"
+                    )
                 raise ValueError("no valid parameter combinations generated")
 
-            generated_combinations = len(combos)
-            sampled_combinations = generated_combinations
+            if (
+                optimization.max_allowed_loss_usdt is not None
+                and raw_space_combinations > 0
+                and len(combos) <= max(5, int(raw_space_combinations * 0.1))
+            ):
+                max_loss_hint = (
+                    "最大亏损数额约束较紧，"
+                    f"可执行组合仅 {len(combos)}/{raw_space_combinations}。"
+                    "建议调整杠杆/保证金或提高亏损上限。"
+                )
             if generated_combinations > optimization.max_combinations:
                 if optimization.auto_limit_combinations:
-                    combos = _limit_combinations(combos, optimization.max_combinations)
+                    # In sampled path, combos is already limited; for full-build path keep old limiting behavior.
+                    if len(combos) > optimization.max_combinations:
+                        combos = _limit_combinations(combos, optimization.max_combinations)
                     sampled_combinations = len(combos)
                 else:
                     raise ValueError(
@@ -589,12 +826,14 @@ def _run_job(job_id: str, payload: OptimizationRequest) -> None:
                             base_strategy=payload.base_strategy,
                             reference_price=reference_price,
                             initial_price=initial_price,
+                            max_loss_initial_price=max_loss_initial_price,
                             leverage=leverage,
                             grids=grids,
                             band_pct_raw=band_pct_raw,
                             stop_ratio_raw=stop_ratio_raw,
                             use_base_position=use_base_position,
                             node_cache=node_cache,
+                            max_allowed_loss_usdt=optimization.max_allowed_loss_usdt,
                         )
                         if combo is None:
                             invalid_pruned += 1
@@ -637,14 +876,45 @@ def _run_job(job_id: str, payload: OptimizationRequest) -> None:
                             running_best = score
                         best_score_progression.append(OptimizationProgressPoint(step=step, value=running_best))
 
+                    running_trials_completed = eval_succeeded
+                    running_trials_pruned = invalid_pruned + eval_failed
+                    running_tested_total = max(running_trials_completed + running_trials_pruned, 1)
+                    _update_job_meta(
+                        job_id,
+                        trials_completed=running_trials_completed,
+                        trials_pruned=running_trials_pruned,
+                        pruning_ratio=(running_trials_pruned / running_tested_total),
+                    )
+
             sampled_combinations = len(combo_by_id)
             if sampled_combinations == 0:
+                if optimization.max_allowed_loss_usdt is not None:
+                    raise ValueError(
+                        "最大亏损数额约束过严，当前参数空间没有可执行组合。"
+                        "请降低杠杆/保证金，或提高“最大亏损数额”后重试。"
+                    )
                 raise ValueError("random-pruned optimization produced no valid parameter combinations")
+            if (
+                optimization.max_allowed_loss_usdt is not None
+                and sampled_combinations <= max(5, int(target_trials * 0.2))
+            ):
+                max_loss_hint = (
+                    "最大亏损数额约束较紧，"
+                    f"有效试验仅 {sampled_combinations}/{target_trials}。"
+                    "建议调整杠杆/保证金或提高亏损上限。"
+                )
             if sampled_combinations != target_trials:
                 set_total_steps(sampled_combinations + (sampled_combinations if validation_candles else 0))
 
             trials_completed = eval_succeeded
             trials_pruned = invalid_pruned + eval_failed
+            tested_total = max(trials_completed + trials_pruned, 1)
+            _update_job_meta(
+                job_id,
+                trials_completed=trials_completed,
+                trials_pruned=trials_pruned,
+                pruning_ratio=(trials_pruned / tested_total),
+            )
         elif optimization.optimization_mode == OptimizationMode.BAYESIAN:
             _raise_if_cancelled(job_id)
             parameter_space = _resolve_parameter_space(payload.base_strategy, optimization, reference_price)
@@ -904,12 +1174,14 @@ def _run_job(job_id: str, payload: OptimizationRequest) -> None:
                             base_strategy=payload.base_strategy,
                             reference_price=reference_price,
                             initial_price=initial_price,
+                            max_loss_initial_price=max_loss_initial_price,
                             leverage=float(leverage),
                             grids=int(grids),
                             band_pct_raw=float(band_pct_raw),
                             stop_ratio_raw=float(stop_ratio_raw),
                             use_base_position=use_base_position,
                             node_cache=node_cache,
+                            max_allowed_loss_usdt=optimization.max_allowed_loss_usdt,
                         )
 
                         if combo is None:
@@ -936,10 +1208,14 @@ def _run_job(job_id: str, payload: OptimizationRequest) -> None:
                         )
                         continue
 
+                    batch_progress_offset = processed_trials
                     batch_evals = train_evaluator.run(
                         batch_tasks,
                         batch_size=min(evaluation_batch_size, len(batch_tasks)),
                         chunk_size=optimization.chunk_size,
+                        progress_hook=lambda done, total, offset=batch_progress_offset: advance(
+                            offset + done, trial_budget, 0
+                        ),
                     )
                     eval_by_row_id = {int(item["row_id"]): item for item in batch_evals}
 
@@ -953,7 +1229,6 @@ def _run_job(job_id: str, payload: OptimizationRequest) -> None:
                             if trial is not None:
                                 study.tell(trial, state=TrialState.PRUNED)
                             trials_pruned += 1
-                            advance(processed_trials, trial_budget, 0)
                             continue
 
                         score = _safe_score(eval_payload.get("score"))
@@ -961,7 +1236,6 @@ def _run_job(job_id: str, payload: OptimizationRequest) -> None:
                             if trial is not None:
                                 study.tell(trial, state=TrialState.PRUNED)
                             trials_pruned += 1
-                            advance(processed_trials, trial_budget, 0)
                             continue
 
                         if trial is not None:
@@ -977,17 +1251,38 @@ def _run_job(job_id: str, payload: OptimizationRequest) -> None:
                         best_score_progression.append(
                             OptimizationProgressPoint(step=processed_trials, value=running_best)
                         )
-                        advance(processed_trials, trial_budget, 0)
 
                     _maybe_activate_adaptive_fallback(
                         batch_elapsed_seconds=time.perf_counter() - batch_started_at,
                         batch_trials_consumed=processed_trials - processed_before_batch,
                     )
+                    tested_total = max(trials_completed + trials_pruned, 1)
+                    _update_job_meta(
+                        job_id,
+                        trials_completed=trials_completed,
+                        trials_pruned=trials_pruned,
+                        pruning_ratio=(trials_pruned / tested_total),
+                    )
 
                 _raise_if_cancelled(job_id)
 
                 if not successful_trials:
+                    if optimization.max_allowed_loss_usdt is not None:
+                        raise ValueError(
+                            "最大亏损数额约束过严，当前参数空间没有可执行组合。"
+                            "请降低杠杆/保证金，或提高“最大亏损数额”后重试。"
+                        )
                     raise ValueError("trial-based optimization produced no valid completed trials")
+
+                if (
+                    optimization.max_allowed_loss_usdt is not None
+                    and trials_completed <= max(5, int(trial_budget * 0.2))
+                ):
+                    max_loss_hint = (
+                        "最大亏损数额约束较紧，"
+                        f"有效试验仅 {trials_completed}/{trial_budget}。"
+                        "建议调整杠杆/保证金或提高亏损上限。"
+                    )
 
                 combo_by_id = {int(item.combo["row_id"]): item.combo for item in successful_trials if item.combo}
                 for item in successful_trials:
@@ -1007,6 +1302,7 @@ def _run_job(job_id: str, payload: OptimizationRequest) -> None:
                         optimization=optimization,
                         reference_price=reference_price,
                         initial_price=initial_price,
+                        max_loss_initial_price=max_loss_initial_price,
                         row_id_start=next_row,
                         existing_signatures=existing_signatures,
                         parameter_space=parameter_space,
@@ -1061,6 +1357,12 @@ def _run_job(job_id: str, payload: OptimizationRequest) -> None:
             ]
             validation_offset = completed_steps
             set_total_steps(completed_steps + len(validation_tasks))
+            _update_job_meta(
+                job_id,
+                message=(
+                    f"Running validation phase ({len(validation_tasks)} combos, progress {completed_steps}/{total_steps})"
+                ),
+            )
 
             validation_evals = run_combinations_parallel(
                 candles=validation_candles,
@@ -1177,6 +1479,8 @@ def _run_job(job_id: str, payload: OptimizationRequest) -> None:
                 record.meta.message = f"{base_message}; no rows passed constraints, showing diagnostic rows"
             else:
                 record.meta.message = base_message
+            if max_loss_hint:
+                record.meta.message = f"{record.meta.message}; {max_loss_hint}"
             _persist_record_snapshot(record, include_rows=True)
     except JobCancelledError as exc:
         _update_job_meta(
@@ -1214,11 +1518,155 @@ def _run_job(job_id: str, payload: OptimizationRequest) -> None:
             record = _JOBS.get(job_id)
             if record is not None:
                 _persist_record_snapshot(record, include_rows=True)
+    finally:
+        status_label = "unknown"
+        with _JOB_LOCK:
+            record = _JOBS.get(job_id)
+            if record is not None:
+                status_label = record.meta.status.value
+            _JOB_THREADS.pop(job_id, None)
+            _refresh_queue_depth_locked()
+        observe_job_duration(
+            job_type="optimization",
+            status=status_label,
+            duration_seconds=max(0.0, time.perf_counter() - started_monotonic),
+        )
+
+
+def run_optimization_job_from_arq(job_id: str, payload_data: dict[str, Any]) -> None:
+    try:
+        payload = OptimizationRequest.model_validate(payload_data)
+    except Exception:
+        snapshot = load_job_snapshot(job_id)
+        if snapshot is None:
+            return
+        try:
+            meta = OptimizationJobMeta.model_validate(snapshot["meta"])
+            target = OptimizationTarget(snapshot["target"])
+        except Exception:
+            return
+        with _JOB_LOCK:
+            record = _JOBS.get(job_id)
+            if record is None:
+                request_payload = snapshot.get("request_payload")
+                record = _JobRecord(
+                    meta=meta,
+                    target=target,
+                    request_payload=request_payload if isinstance(request_payload, dict) else None,
+                    cancel_requested=bool(snapshot.get("cancel_requested", False)),
+                )
+                _JOBS[job_id] = record
+            record.meta.status = OptimizationJobStatus.FAILED
+            record.meta.finished_at = datetime.now(timezone.utc)
+            record.meta.message = "Optimization failed"
+            record.meta.error = "invalid optimization payload"
+            _persist_record_snapshot(record, include_rows=False, force=True)
+            _refresh_queue_depth_locked()
+        return
+
+    payload_json = payload.model_dump(mode="json")
+    with _JOB_LOCK:
+        _cleanup_jobs_locked()
+        record = _JOBS.get(job_id)
+        if record is None:
+            loaded = _load_record_from_snapshot(job_id)
+            if loaded is None:
+                return
+            record = loaded
+            _JOBS[job_id] = record
+
+        if record.meta.status in _FINISHED_JOB_STATUSES:
+            return
+
+        record.target = payload.optimization.target
+        record.request_payload = payload_json
+        record.cancel_requested = bool(record.cancel_requested or is_job_cancel_requested(job_id))
+        _persist_record_snapshot(record, include_rows=False, force=True)
+        _refresh_queue_depth_locked()
+
+    _run_job(job_id, payload)
+
+
+def recover_interrupted_optimization_jobs() -> dict[str, int]:
+    if use_arq_for_optimization():
+        return {"scanned": 0, "restarted": 0, "skipped": 0, "failed": 0}
+    if not _RECOVERY_ENABLED or _RECOVERY_MAX_JOBS <= 0:
+        return {"scanned": 0, "restarted": 0, "skipped": 0, "failed": 0}
+
+    snapshots = list_recoverable_job_snapshots(limit=_RECOVERY_SCAN_LIMIT)
+    to_start: list[tuple[str, OptimizationRequest]] = []
+    skipped = 0
+    failed = 0
+
+    for item in snapshots:
+        job_id = str(item.get("job_id") or "").strip()
+        if not job_id:
+            skipped += 1
+            continue
+
+        payload_data = item.get("request_payload")
+        if not isinstance(payload_data, dict):
+            failed += 1
+            _mark_job_recovery_failed(job_id, "optimization request snapshot unavailable for recovery")
+            continue
+
+        try:
+            payload = OptimizationRequest.model_validate(payload_data)
+        except Exception:
+            failed += 1
+            _mark_job_recovery_failed(job_id, "invalid optimization request payload in snapshot")
+            continue
+
+        with _JOB_LOCK:
+            active_worker = _JOB_THREADS.get(job_id)
+            if active_worker is not None and active_worker.is_alive():
+                skipped += 1
+                continue
+
+            record = _JOBS.get(job_id)
+            if record is None:
+                loaded = _load_record_from_snapshot(job_id)
+                if loaded is None:
+                    skipped += 1
+                    continue
+                record = loaded
+
+            if record.meta.status in _FINISHED_JOB_STATUSES:
+                skipped += 1
+                continue
+
+            if len(to_start) >= _RECOVERY_MAX_JOBS:
+                skipped += 1
+                continue
+
+            record.cancel_requested = False
+            record.meta.status = OptimizationJobStatus.PENDING
+            record.meta.started_at = None
+            record.meta.finished_at = None
+            record.meta.completed_steps = 0
+            record.meta.progress = 0.0
+            record.meta.error = None
+            record.meta.message = "Recovered after process restart; restarting optimization"
+            _JOBS[job_id] = record
+            _persist_record_snapshot(record, include_rows=False, force=True)
+            to_start.append((job_id, payload))
+
+    restarted = 0
+    for job_id, payload in to_start:
+        thread = threading.Thread(target=_run_job, args=(job_id, payload), daemon=True)
+        thread.start()
+        with _JOB_LOCK:
+            _JOB_THREADS[job_id] = thread
+            _refresh_queue_depth_locked()
+        restarted += 1
+
+    return {"scanned": len(snapshots), "restarted": restarted, "skipped": skipped, "failed": failed}
 
 
 def start_optimization_job(payload: OptimizationRequest) -> OptimizationStartResponse:
     job_id = uuid.uuid4().hex
     created_at = datetime.now(timezone.utc)
+    payload_json = payload.model_dump(mode="json")
 
     meta = OptimizationJobMeta(
         job_id=job_id,
@@ -1232,13 +1680,33 @@ def start_optimization_job(payload: OptimizationRequest) -> OptimizationStartRes
         record = _JobRecord(
             meta=meta,
             target=payload.optimization.target,
-            request_payload=payload.model_dump(mode="json"),
+            request_payload=payload_json,
         )
         _JOBS[job_id] = record
         _persist_record_snapshot(record, include_rows=False)
+        _refresh_queue_depth_locked()
+
+    if use_arq_for_optimization():
+        try:
+            enqueue_optimization_job(job_id=job_id, payload=payload_json)
+        except Exception:
+            with _JOB_LOCK:
+                record = _JOBS.get(job_id)
+                if record is not None:
+                    record.meta.status = OptimizationJobStatus.FAILED
+                    record.meta.finished_at = datetime.now(timezone.utc)
+                    record.meta.error = "failed to enqueue optimization job"
+                    record.meta.message = "Optimization failed"
+                    _persist_record_snapshot(record, include_rows=False, force=True)
+                    _refresh_queue_depth_locked()
+            raise
+        return OptimizationStartResponse(job_id=job_id, status=OptimizationJobStatus.PENDING, total_combinations=0)
 
     thread = threading.Thread(target=_run_job, args=(job_id, payload), daemon=True)
     thread.start()
+    with _JOB_LOCK:
+        _JOB_THREADS[job_id] = thread
+        _refresh_queue_depth_locked()
 
     return OptimizationStartResponse(job_id=job_id, status=OptimizationJobStatus.PENDING, total_combinations=0)
 
@@ -1278,6 +1746,10 @@ def cancel_optimization_job(job_id: str) -> OptimizationJobMeta:
             return record.meta.model_copy(deep=True)
 
         record.cancel_requested = True
+        try:
+            set_job_cancel_requested(job_id, True)
+        except Exception:
+            pass
         record.meta.message = "Cancellation requested"
         if record.meta.status == OptimizationJobStatus.PENDING:
             record.meta.status = OptimizationJobStatus.CANCELLED
@@ -1285,6 +1757,7 @@ def cancel_optimization_job(job_id: str) -> OptimizationJobMeta:
             record.meta.progress = 0.0
             record.meta.error = None
         _persist_record_snapshot(record, include_rows=record.meta.status in _FINISHED_JOB_STATUSES)
+        _refresh_queue_depth_locked()
 
         return record.meta.model_copy(deep=True)
 
@@ -1309,6 +1782,21 @@ def get_optimization_status(
                 raise KeyError(f"optimization job not found: {job_id}")
             _JOBS[job_id] = loaded
             record = loaded
+        record = _refresh_record_from_snapshot_for_remote_worker_locked(job_id, record)
+        if (
+            record.meta.status in _FINISHED_JOB_STATUSES
+            and len(record.rows) == 0
+        ):
+            retry_loaded = _load_record_from_snapshot(job_id)
+            if retry_loaded is not None and len(retry_loaded.rows) > 0:
+                record.rows = retry_loaded.rows
+                record.best_row = retry_loaded.best_row
+                record.best_validation_row = retry_loaded.best_validation_row
+                record.best_equity_curve = retry_loaded.best_equity_curve
+                record.best_score_progression = retry_loaded.best_score_progression
+                record.convergence_curve_data = retry_loaded.convergence_curve_data
+                _invalidate_row_caches(record)
+        _ensure_running_job_alive_locked(job_id, record)
         status_payload = _build_status_payload_locked(
             record=record,
             page=page,
@@ -1399,6 +1887,8 @@ def get_optimization_rows(
                 raise KeyError(f"optimization job not found: {job_id}")
             _JOBS[job_id] = loaded
             record = loaded
+        record = _refresh_record_from_snapshot_for_remote_worker_locked(job_id, record)
+        _ensure_running_job_alive_locked(job_id, record)
         cache_key = (sort_field, cache_order, record.row_version)
         if record.cached_sort_key != cache_key:
             sorted_rows = sorted(record.rows, key=lambda row: _score_sort_key(row, sort_field), reverse=reverse)
@@ -1438,6 +1928,8 @@ def get_optimization_heatmap(job_id: str) -> OptimizationHeatmapResponse:
                 raise KeyError(f"optimization job not found: {job_id}")
             _JOBS[job_id] = loaded
             record = loaded
+        record = _refresh_record_from_snapshot_for_remote_worker_locked(job_id, record)
+        _ensure_running_job_alive_locked(job_id, record)
         if record.cached_heatmap_version != record.row_version:
             record.cached_heatmap = _build_heatmap(record.rows)
             record.cached_heatmap_version = record.row_version
@@ -1510,23 +2002,237 @@ def get_optimization_progress(job_id: str) -> OptimizationProgressResponse:
                 raise KeyError(f"optimization job not found: {job_id}")
             _JOBS[job_id] = loaded
             record = loaded
+        record = _refresh_record_from_snapshot_for_remote_worker_locked(job_id, record)
+        _ensure_running_job_alive_locked(job_id, record)
         return OptimizationProgressResponse(
             job=record.meta.model_copy(deep=True),
             target=record.target,
         )
 
 
-def list_optimization_history(limit: int = 30) -> List[OptimizationProgressResponse]:
-    history_rows = list_recent_job_snapshots(limit=limit)
+def record_optimization_operation_event(
+    *,
+    operation_id: str,
+    action: str,
+    status: str,
+    requested: int,
+    success: int,
+    failed: int,
+    skipped: int,
+    job_ids: list[str],
+    failed_items: list[dict[str, Any]],
+    undo_until: Optional[str] = None,
+    summary_text: Optional[str] = None,
+    request_id: Optional[str] = None,
+    meta: Optional[dict[str, Any]] = None,
+) -> None:
+    save_operation_event(
+        operation_id=operation_id,
+        action=action,
+        status=status,
+        requested=requested,
+        success=success,
+        failed=failed,
+        skipped=skipped,
+        job_ids=job_ids,
+        failed_items=failed_items,
+        undo_until=undo_until,
+        summary_text=summary_text,
+        request_id=request_id,
+        meta=meta,
+    )
+
+
+def get_optimization_operation_event(operation_id: str) -> Optional[dict[str, Any]]:
+    return get_operation_event(operation_id)
+
+
+def list_optimization_operation_events(
+    *,
+    limit: int = 30,
+    cursor: Optional[str] = None,
+    action: Optional[str] = None,
+    status: Optional[str] = None,
+) -> tuple[list[dict[str, Any]], Optional[str]]:
+    return list_operation_events_cursor(
+        limit=limit,
+        cursor=cursor,
+        action=action,
+        status=status,
+    )
+
+
+def list_optimization_history(
+    limit: int = 30,
+    cursor: Optional[str] = None,
+    status: Optional[OptimizationJobStatus] = None,
+) -> tuple[List[OptimizationProgressResponse], Optional[str]]:
+    history_rows, next_cursor = list_recent_job_snapshots_cursor(
+        limit=limit,
+        cursor=cursor,
+        status=status.value if status is not None else None,
+    )
     result: List[OptimizationProgressResponse] = []
     for item in history_rows:
         try:
+            job_id = item.get("job_id")
+            meta = OptimizationJobMeta.model_validate(item["meta"])
+            with _JOB_LOCK:
+                if job_id and job_id in _JOBS:
+                    record = _JOBS[job_id]
+                    _ensure_running_job_alive_locked(job_id, record)
+                    meta = record.meta.model_copy(deep=True)
             result.append(
                 OptimizationProgressResponse(
-                    job=OptimizationJobMeta.model_validate(item["meta"]),
+                    job=meta,
                     target=OptimizationTarget(item["target"]),
                 )
             )
         except Exception:
             continue
-    return result
+    return result, next_cursor
+
+
+def clear_optimization_history() -> dict[str, Any]:
+    deleted, deleted_ids, skipped_ids = soft_delete_all_terminal_job_snapshots_with_details()
+    deleted_set = set(deleted_ids)
+    with _JOB_LOCK:
+        removable_job_ids = [
+            job_id
+            for job_id, record in _JOBS.items()
+            if record.meta.status in _FINISHED_JOB_STATUSES and job_id in deleted_set
+        ]
+        for job_id in removable_job_ids:
+            _JOBS.pop(job_id, None)
+            _JOB_THREADS.pop(job_id, None)
+            drop_persist_tracking_view(
+                job_id,
+                last_persist_at=_LAST_PERSIST_AT,
+                last_persist_progress=_LAST_PERSIST_PROGRESS,
+                last_persist_completed_steps=_LAST_PERSIST_COMPLETED_STEPS,
+                )
+        _refresh_queue_depth_locked()
+    return {
+        "requested": int(deleted + len(skipped_ids)),
+        "deleted": int(deleted),
+        "failed": int(len(skipped_ids)),
+        "deleted_job_ids": list(deleted_ids),
+        "failed_job_ids": list(skipped_ids),
+        "failed_items": [
+            {
+                "job_id": job_id,
+                "reason_code": "JOB_NOT_FINISHED",
+                "reason_message": "任务仍在运行中，仅允许清理已完成/失败/已取消任务",
+            }
+            for job_id in skipped_ids
+        ],
+        "skipped": int(len(skipped_ids)),
+        "skipped_job_ids": list(skipped_ids),
+        "soft_delete_ttl_hours": optimization_soft_delete_ttl_hours(),
+    }
+
+
+def clear_selected_optimization_history(job_ids: List[str]) -> dict[str, Any]:
+    selected_ids = list(
+        dict.fromkeys(
+            [job_id.strip() for job_id in job_ids if isinstance(job_id, str) and job_id.strip()]
+        )
+    )
+    if not selected_ids:
+        return {
+            "requested": 0,
+            "deleted": 0,
+            "failed": 0,
+            "deleted_job_ids": [],
+            "failed_job_ids": [],
+            "failed_items": [],
+        }
+
+    _, deleted_snapshot_ids, skipped_snapshot_ids = soft_delete_terminal_job_snapshots_with_details(selected_ids)
+    deleted_set: set[str] = set(deleted_snapshot_ids)
+    skipped_set: set[str] = set(skipped_snapshot_ids)
+
+    with _JOB_LOCK:
+        for job_id in deleted_snapshot_ids:
+            record = _JOBS.get(job_id)
+            if record is None or record.meta.status not in _FINISHED_JOB_STATUSES:
+                continue
+            _JOBS.pop(job_id, None)
+            _JOB_THREADS.pop(job_id, None)
+            drop_persist_tracking_view(
+                job_id,
+                last_persist_at=_LAST_PERSIST_AT,
+                last_persist_progress=_LAST_PERSIST_PROGRESS,
+                last_persist_completed_steps=_LAST_PERSIST_COMPLETED_STEPS,
+            )
+        _refresh_queue_depth_locked()
+
+    deleted_job_ids = [job_id for job_id in selected_ids if job_id in deleted_set]
+    failed_job_ids = [job_id for job_id in selected_ids if job_id not in deleted_set]
+    failed_items = []
+    for job_id in failed_job_ids:
+        if job_id in skipped_set:
+            reason_code, reason_message = (
+                "JOB_NOT_FINISHED",
+                "任务仍在运行中，仅允许清理已完成/失败/已取消任务",
+            )
+        else:
+            reason_code, reason_message = (
+                "NOT_FOUND_OR_ALREADY_DELETED",
+                "任务不存在或已被清空",
+            )
+        failed_items.append(
+            {
+                "job_id": job_id,
+                "reason_code": reason_code,
+                "reason_message": reason_message,
+            }
+        )
+    return {
+        "requested": len(selected_ids),
+        "deleted": len(deleted_job_ids),
+        "failed": len(failed_job_ids),
+        "deleted_job_ids": deleted_job_ids,
+        "failed_job_ids": failed_job_ids,
+        "failed_items": failed_items,
+        "skipped": len(skipped_set),
+        "skipped_job_ids": [job_id for job_id in selected_ids if job_id in skipped_set],
+        "soft_delete_ttl_hours": optimization_soft_delete_ttl_hours(),
+    }
+
+
+def restore_selected_optimization_history(job_ids: List[str]) -> dict[str, Any]:
+    selected_ids = list(
+        dict.fromkeys(
+            [job_id.strip() for job_id in job_ids if isinstance(job_id, str) and job_id.strip()]
+        )
+    )
+    if not selected_ids:
+        return {
+            "requested": 0,
+            "restored": 0,
+            "failed": 0,
+            "restored_job_ids": [],
+            "failed_job_ids": [],
+            "failed_items": [],
+        }
+
+    _, restored_ids = restore_job_snapshots_with_details(selected_ids)
+    restored_set = set(restored_ids)
+    failed_job_ids = [job_id for job_id in selected_ids if job_id not in restored_set]
+    failed_items = [
+        {
+            "job_id": job_id,
+            "reason_code": "NOT_FOUND_OR_NOT_DELETED",
+            "reason_message": "任务不存在、已恢复或超出可撤销窗口",
+        }
+        for job_id in failed_job_ids
+    ]
+    return {
+        "requested": len(selected_ids),
+        "restored": len(restored_ids),
+        "failed": len(failed_job_ids),
+        "restored_job_ids": restored_ids,
+        "failed_job_ids": failed_job_ids,
+        "failed_items": failed_items,
+    }

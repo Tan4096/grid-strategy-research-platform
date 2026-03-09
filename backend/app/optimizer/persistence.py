@@ -61,6 +61,7 @@ def persist_record_snapshot(
             train_window=record.train_window.model_dump(mode="json") if record.train_window else None,
             validation_window=record.validation_window.model_dump(mode="json") if record.validation_window else None,
             include_rows=include_rows,
+            cancel_requested=bool(getattr(record, "cancel_requested", False)),
         )
         last_persist_at[job_id] = now
         last_persist_progress[job_id] = float(record.meta.progress)
