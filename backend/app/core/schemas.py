@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -34,6 +34,12 @@ class DataSource(str, Enum):
     CSV = "csv"
 
 
+class LiveExchange(str, Enum):
+    BINANCE = "binance"
+    BYBIT = "bybit"
+    OKX = "okx"
+
+
 class Candle(BaseModel):
     timestamp: datetime
     open: float
@@ -52,6 +58,7 @@ class StrategyConfig(BaseModel):
     margin: float = Field(..., gt=0)
     stop_loss: float = Field(..., gt=0)
     use_base_position: bool = False
+    strict_risk_control: bool = True
     reopen_after_stop: bool = True
     fee_rate: float = Field(0.0004, ge=0)
     maker_fee_rate: Optional[float] = Field(None, ge=0)
@@ -64,6 +71,7 @@ class StrategyConfig(BaseModel):
     price_tick_size: float = Field(0.0, ge=0.0)
     quantity_step_size: float = Field(0.0, ge=0.0)
     min_notional: float = Field(0.0, ge=0.0)
+    max_allowed_loss_usdt: Optional[float] = Field(None, gt=0)
 
     @model_validator(mode="after")
     def validate_price_range(self) -> "StrategyConfig":
@@ -144,6 +152,7 @@ class EventLog(BaseModel):
     event_type: str
     price: float
     message: str
+    payload: Optional[dict[str, Any]] = None
 
 
 class BacktestSummary(BaseModel):
@@ -164,9 +173,12 @@ class BacktestSummary(BaseModel):
     status: str
     fees_paid: float
     funding_paid: float
+    funding_net: float
+    funding_statement_amount: float
     use_base_position: bool
     base_grid_count: int
     initial_position_size: float
+    max_possible_loss_usdt: float
 
 
 class StrategyAnalysis(BaseModel):
@@ -201,6 +213,7 @@ class BacktestResult(BaseModel):
     grid_lines: list[float]
     equity_curve: list[CurvePoint]
     drawdown_curve: list[CurvePoint]
+    unrealized_pnl_curve: list[CurvePoint]
     margin_ratio_curve: list[CurvePoint]
     leverage_usage_curve: list[CurvePoint]
     liquidation_price_curve: list[CurvePoint]
@@ -232,11 +245,19 @@ class BacktestJobMeta(BaseModel):
 class BacktestStartResponse(BaseModel):
     job_id: str
     status: BacktestJobStatus
+    idempotency_reused: bool = False
 
 
 class BacktestStatusResponse(BaseModel):
     job: BacktestJobMeta
     result: Optional[BacktestResult] = None
+
+
+class BacktestAnchorPriceResponse(BaseModel):
+    anchor_price: float
+    anchor_time: datetime
+    anchor_source: Literal["first_candle_close", "avg_candle_close", "last_candle_close", "custom_price"]
+    candle_count: int
 
 
 class MarketParamsResponse(BaseModel):
@@ -249,8 +270,268 @@ class MarketParamsResponse(BaseModel):
     price_tick_size: float
     quantity_step_size: float
     min_notional: float
+    reference_price: Optional[float] = None
     fetched_at: datetime
     note: Optional[str] = None
+
+
+class LiveCredentials(BaseModel):
+    api_key: str = Field(..., min_length=1)
+    api_secret: str = Field(..., min_length=1)
+    passphrase: Optional[str] = None
+
+
+class LiveRobotListRequest(BaseModel):
+    exchange: LiveExchange
+    scope: Literal["running", "recent"] = "running"
+    credentials: LiveCredentials
+
+    @model_validator(mode="after")
+    def normalize(self) -> "LiveRobotListRequest":
+        if self.exchange != LiveExchange.OKX:
+            raise ValueError("OKX robot list only supports exchange=okx")
+        if not (self.credentials.passphrase or "").strip():
+            raise ValueError("OKX robot list requires credentials.passphrase")
+        return self
+
+
+class LiveRobotListItem(BaseModel):
+    algo_id: str
+    name: str
+    symbol: str
+    exchange_symbol: str
+    state: Optional[str] = None
+    side: Optional[Literal["long", "short", "flat"]] = None
+    updated_at: Optional[datetime] = None
+    run_type: Optional[str] = None
+    configured_leverage: Optional[float] = None
+    investment_usdt: Optional[float] = None
+    lower_price: Optional[float] = None
+    upper_price: Optional[float] = None
+    grid_count: Optional[int] = None
+
+
+class LiveRobotListResponse(BaseModel):
+    scope: Literal["running", "recent"] = "running"
+    items: list[LiveRobotListItem] = Field(default_factory=list)
+
+
+class LiveSnapshotRequest(BaseModel):
+    exchange: LiveExchange
+    symbol: str = Field(..., min_length=2)
+    strategy_started_at: datetime
+    algo_id: Optional[str] = None
+    monitoring_poll_interval_sec: int = Field(15, ge=5, le=60)
+    monitoring_scope: Literal["running", "recent"] = "running"
+    credentials: LiveCredentials
+
+    @model_validator(mode="after")
+    def normalize(self) -> "LiveSnapshotRequest":
+        beijing_tz = timezone(timedelta(hours=8))
+        self.symbol = self.symbol.strip().upper()
+        self.algo_id = (self.algo_id or "").strip() or None
+        if self.strategy_started_at.tzinfo is None:
+            self.strategy_started_at = self.strategy_started_at.replace(tzinfo=beijing_tz)
+        self.monitoring_poll_interval_sec = max(5, min(60, int(self.monitoring_poll_interval_sec or 15)))
+        if self.exchange == LiveExchange.OKX:
+            if not self.algo_id:
+                raise ValueError("OKX live snapshot requires algo_id")
+            if not (self.credentials.passphrase or "").strip():
+                raise ValueError("OKX live snapshot requires credentials.passphrase")
+        return self
+
+
+class LiveAccountInfo(BaseModel):
+    exchange: LiveExchange
+    symbol: str
+    exchange_symbol: str
+    algo_id: str
+    strategy_started_at: datetime
+    fetched_at: datetime
+    masked_api_key: str
+
+
+class LiveSnapshotSummary(BaseModel):
+    realized_pnl: float
+    unrealized_pnl: float
+    fees_paid: float
+    funding_paid: float
+    funding_net: float
+    total_pnl: float
+    position_notional: float
+    open_order_count: int
+    fill_count: int
+
+
+class LiveRobotOverview(BaseModel):
+    algo_id: str
+    name: str
+    state: Optional[str] = None
+    direction: Optional[Literal["long", "short", "flat"]] = None
+    algo_type: Optional[str] = None
+    run_type: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    investment_usdt: Optional[float] = None
+    configured_leverage: Optional[float] = None
+    actual_leverage: Optional[float] = None
+    liquidation_price: Optional[float] = None
+    grid_count: Optional[int] = None
+    lower_price: Optional[float] = None
+    upper_price: Optional[float] = None
+    grid_spacing: Optional[float] = None
+    grid_profit: Optional[float] = None
+    floating_profit: Optional[float] = None
+    total_fee: Optional[float] = None
+    funding_fee: Optional[float] = None
+    total_pnl: Optional[float] = None
+    pnl_ratio: Optional[float] = None
+    stop_loss_price: Optional[float] = None
+    take_profit_price: Optional[float] = None
+    use_base_position: Optional[bool] = None
+
+
+class LivePosition(BaseModel):
+    side: Literal["long", "short", "flat"] = "flat"
+    quantity: float = 0.0
+    entry_price: float = 0.0
+    mark_price: float = 0.0
+    notional: float = 0.0
+    leverage: Optional[float] = None
+    liquidation_price: Optional[float] = None
+    margin_mode: Optional[str] = None
+    unrealized_pnl: float = 0.0
+    realized_pnl: float = 0.0
+
+
+class LiveOpenOrder(BaseModel):
+    order_id: str
+    client_order_id: Optional[str] = None
+    side: Literal["buy", "sell"]
+    price: float
+    quantity: float
+    filled_quantity: float = 0.0
+    reduce_only: bool = False
+    status: str = "open"
+    timestamp: Optional[datetime] = None
+
+
+class LiveFill(BaseModel):
+    trade_id: str
+    order_id: Optional[str] = None
+    side: Literal["buy", "sell"]
+    price: float
+    quantity: float
+    realized_pnl: float = 0.0
+    fee: float = 0.0
+    fee_currency: Optional[str] = None
+    is_maker: Optional[bool] = None
+    timestamp: datetime
+
+
+class LiveFundingEntry(BaseModel):
+    timestamp: datetime
+    amount: float
+    rate: Optional[float] = None
+    position_size: Optional[float] = None
+    currency: Optional[str] = None
+
+
+class LiveInferredGrid(BaseModel):
+    lower: Optional[float] = None
+    upper: Optional[float] = None
+    grid_count: Optional[int] = None
+    grid_spacing: Optional[float] = None
+    active_level_count: int = 0
+    active_levels: list[float] = Field(default_factory=list)
+    confidence: float = 0.0
+    use_base_position: Optional[bool] = None
+    side: Optional[GridSide] = None
+    note: Optional[str] = None
+
+
+class LiveDiagnostic(BaseModel):
+    level: Literal["info", "warning", "error"]
+    code: str
+    message: str
+    action_hint: Optional[str] = None
+
+
+class LiveWindowInfo(BaseModel):
+    strategy_started_at: datetime
+    fetched_at: datetime
+    compared_end_at: datetime
+
+
+class LiveCompleteness(BaseModel):
+    fills_complete: bool = True
+    funding_complete: bool = True
+    bills_window_clipped: bool = False
+    partial_failures: list[str] = Field(default_factory=list)
+
+
+class LiveLedgerSummary(BaseModel):
+    trading_net: float
+    fees: float
+    funding: float
+    total_pnl: float
+    realized: float
+    unrealized: float
+
+
+class LiveLedgerEntry(BaseModel):
+    timestamp: datetime
+    kind: Literal["trade", "fee", "funding"]
+    amount: float
+    pnl: float = 0.0
+    fee: float = 0.0
+    currency: Optional[str] = None
+    side: Optional[Literal["buy", "sell"]] = None
+    order_id: Optional[str] = None
+    trade_id: Optional[str] = None
+    is_maker: Optional[bool] = None
+    note: Optional[str] = None
+
+
+class LiveMonitoringInfo(BaseModel):
+    poll_interval_sec: int
+    last_success_at: datetime
+    freshness_sec: int
+    stale: bool = False
+    source_latency_ms: int = 0
+    fills_page_count: int = 0
+    fills_capped: bool = False
+    orders_page_count: int = 0
+
+
+class LiveDailyBreakdown(BaseModel):
+    date: str
+    realized_pnl: float = 0.0
+    fees_paid: float = 0.0
+    funding_net: float = 0.0
+    trading_net: float = 0.0
+    total_pnl: float = 0.0
+    entry_count: int = 0
+
+
+class LiveSnapshotResponse(BaseModel):
+    account: LiveAccountInfo
+    robot: LiveRobotOverview
+    monitoring: LiveMonitoringInfo
+    market_params: Optional[MarketParamsResponse] = None
+    summary: LiveSnapshotSummary
+    window: LiveWindowInfo
+    completeness: LiveCompleteness
+    ledger_summary: LiveLedgerSummary
+    position: LivePosition
+    open_orders: list[LiveOpenOrder] = Field(default_factory=list)
+    fills: list[LiveFill] = Field(default_factory=list)
+    funding_entries: list[LiveFundingEntry] = Field(default_factory=list)
+    pnl_curve: list[CurvePoint] = Field(default_factory=list)
+    daily_breakdown: list[LiveDailyBreakdown] = Field(default_factory=list)
+    ledger_entries: list[LiveLedgerEntry] = Field(default_factory=list)
+    inferred_grid: LiveInferredGrid
+    diagnostics: list[LiveDiagnostic] = Field(default_factory=list)
 
 
 def default_request() -> BacktestRequest:
@@ -268,6 +549,7 @@ def default_request() -> BacktestRequest:
             margin=2000,
             stop_loss=59000,
             use_base_position=False,
+            strict_risk_control=True,
             reopen_after_stop=True,
             fee_rate=0.0004,
             maker_fee_rate=0.0002,
@@ -280,6 +562,7 @@ def default_request() -> BacktestRequest:
             price_tick_size=0.1,
             quantity_step_size=0.0001,
             min_notional=5.0,
+            max_allowed_loss_usdt=None,
         ),
         data=DataConfig(
             source=DataSource.BINANCE,

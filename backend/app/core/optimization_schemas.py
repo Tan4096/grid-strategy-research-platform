@@ -76,6 +76,7 @@ class OptimizationConfig(BaseModel):
 
     min_closed_trades: int = Field(0, ge=0)
     max_drawdown_pct_limit: Optional[float] = Field(None, gt=0)
+    max_allowed_loss_usdt: Optional[float] = Field(None, gt=0)
     require_positive_return: bool = False
     robust_validation_weight: float = Field(0.7, ge=0.0, le=1.0)
     robust_gap_penalty: float = Field(0.2, ge=0.0, le=10.0)
@@ -149,6 +150,7 @@ class OptimizationResultRow(BaseModel):
     range_upper: float
     stop_loss: float
     stop_loss_ratio_pct: float
+    max_possible_loss_usdt: float = 0.0
 
     total_return_usdt: float
     max_drawdown_pct: float
@@ -226,11 +228,23 @@ class OptimizationStartResponse(BaseModel):
     job_id: str
     status: OptimizationJobStatus
     total_combinations: int
+    idempotency_reused: bool = False
+
+
+class OptimizationHistoryFailedItem(BaseModel):
+    job_id: str
+    reason_code: str
+    reason_message: str
 
 
 class OptimizationProgressResponse(BaseModel):
     job: OptimizationJobMeta
     target: OptimizationTarget
+
+
+class OptimizationHistoryPageResponse(BaseModel):
+    items: List[OptimizationProgressResponse]
+    next_cursor: Optional[str] = None
 
 
 class OptimizationStatusResponse(BaseModel):
