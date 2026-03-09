@@ -1,6 +1,6 @@
-import { expect, Page, test } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 
-interface MockCalls {
+export interface MockCalls {
   backtestStartIdempotencyKeys: string[];
   optimizationStartIdempotencyKeys: string[];
   clearSelectedCalls: number;
@@ -9,7 +9,7 @@ interface MockCalls {
   exportCalls: number;
 }
 
-interface MockApiOptions {
+export interface MockApiOptions {
   historyItems?: Array<{ job: ReturnType<typeof optimizationMeta>; target: string }>;
   historyNextCursor?: string | null;
   historyAfterCursor?: Record<string, { items: Array<{ job: ReturnType<typeof optimizationMeta>; target: string }>; next_cursor: string | null }>;
@@ -26,11 +26,11 @@ interface MockApiOptions {
   operationDetails?: Record<string, Record<string, unknown>>;
 }
 
-function nowIso(): string {
+export function nowIso(): string {
   return new Date().toISOString();
 }
 
-function backtestDefaults() {
+export function backtestDefaults() {
   return {
     strategy: {
       side: "long",
@@ -68,7 +68,7 @@ function backtestDefaults() {
   };
 }
 
-function optimizationRow() {
+export function optimizationRow() {
   return {
     row_id: 1,
     leverage: 8,
@@ -107,7 +107,7 @@ function optimizationRow() {
   };
 }
 
-function optimizationMeta(status: "pending" | "running" | "completed" | "failed" | "cancelled") {
+export function optimizationMeta(status: "pending" | "running" | "completed" | "failed" | "cancelled") {
   const now = nowIso();
   return {
     job_id: "opt-job-1",
@@ -127,7 +127,7 @@ function optimizationMeta(status: "pending" | "running" | "completed" | "failed"
   };
 }
 
-function optimizationStatusPayload(status: "pending" | "running" | "completed" | "failed" | "cancelled" = "completed") {
+export function optimizationStatusPayload(status: "pending" | "running" | "completed" | "failed" | "cancelled" = "completed") {
   const row = optimizationRow();
   const now = nowIso();
   return {
@@ -141,10 +141,7 @@ function optimizationStatusPayload(status: "pending" | "running" | "completed" |
     rows: [row],
     best_row: row,
     best_validation_row: null,
-    best_equity_curve: [
-      { timestamp: now, value: 1000 },
-      { timestamp: now, value: 1020 }
-    ],
+    best_equity_curve: [{ timestamp: now, value: 1000 }, { timestamp: now, value: 1020 }],
     best_score_progression: [{ step: 1, value: 2.95 }],
     convergence_curve_data: [{ step: 1, value: 2.95 }],
     heatmap: [],
@@ -154,14 +151,10 @@ function optimizationStatusPayload(status: "pending" | "running" | "completed" |
 }
 
 function jsonResponse(payload: unknown, status = 200) {
-  return {
-    status,
-    contentType: "application/json",
-    body: JSON.stringify(payload)
-  };
+  return { status, contentType: "application/json", body: JSON.stringify(payload) };
 }
 
-async function mockApi(page: Page, options: MockApiOptions = {}): Promise<MockCalls> {
+export async function mockApi(page: Page, options: MockApiOptions = {}): Promise<MockCalls> {
   const calls: MockCalls = {
     backtestStartIdempotencyKeys: [],
     optimizationStartIdempotencyKeys: [],
@@ -174,12 +167,7 @@ async function mockApi(page: Page, options: MockApiOptions = {}): Promise<MockCa
   let backtestStatusCall = 0;
   let optimizationProgressCall = 0;
   let optimizationStatusCall = 0;
-  const defaultHistoryItems = [
-    {
-      job: optimizationMeta("completed"),
-      target: "return_drawdown_ratio"
-    }
-  ];
+  const defaultHistoryItems = [{ job: optimizationMeta("completed"), target: "return_drawdown_ratio" }];
 
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
@@ -192,21 +180,7 @@ async function mockApi(page: Page, options: MockApiOptions = {}): Promise<MockCa
       return;
     }
     if (path === "/api/v1/market/params" && method === "GET") {
-      await route.fulfill(
-        jsonResponse({
-          source: "binance",
-          symbol: "BTCUSDT",
-          maker_fee_rate: 0.0002,
-          taker_fee_rate: 0.0004,
-          funding_rate_per_8h: 0.0,
-          funding_interval_hours: 8,
-          price_tick_size: 0.1,
-          quantity_step_size: 0.0001,
-          min_notional: 5.0,
-          fetched_at: nowIso(),
-          note: null
-        })
-      );
+      await route.fulfill(jsonResponse({ source: "binance", symbol: "BTCUSDT", maker_fee_rate: 0.0002, taker_fee_rate: 0.0004, funding_rate_per_8h: 0.0, funding_interval_hours: 8, price_tick_size: 0.1, quantity_step_size: 0.0001, min_notional: 5.0, fetched_at: nowIso(), note: null }));
       return;
     }
     if (path === "/api/v1/backtest/start" && method === "POST") {
@@ -215,41 +189,13 @@ async function mockApi(page: Page, options: MockApiOptions = {}): Promise<MockCa
       return;
     }
     if (path === "/api/v1/backtest/bt-job-1" && method === "GET") {
-      const plan = options.backtestStatusPlan;
-      const payload = plan?.[Math.min(backtestStatusCall, plan.length - 1)] ?? {
-        job: {
-          job_id: "bt-job-1",
-          status: "failed",
-          created_at: nowIso(),
-          started_at: nowIso(),
-          finished_at: nowIso(),
-          progress: 100,
-          message: "failed",
-          error: "mocked backtest failure"
-        },
-        result: null
-      };
+      const payload = options.backtestStatusPlan?.[Math.min(backtestStatusCall, (options.backtestStatusPlan?.length ?? 1) - 1)] ?? { job: { job_id: "bt-job-1", status: "failed", created_at: nowIso(), started_at: nowIso(), finished_at: nowIso(), progress: 100, message: "failed", error: "mocked backtest failure" }, result: null };
       backtestStatusCall += 1;
       await route.fulfill(jsonResponse(payload));
       return;
     }
     if (path === "/api/v1/live/robots" && method === "POST") {
-      await route.fulfill(
-        jsonResponse({
-          scope: "recent",
-          items: [
-            {
-              algo_id: "algo-live-1",
-              name: "BTC Grid",
-              symbol: "BTCUSDT",
-              exchange_symbol: "BTC-USDT-SWAP",
-              updated_at: nowIso(),
-              state: "running",
-              side: "long"
-            }
-          ]
-        })
-      );
+      await route.fulfill(jsonResponse({ scope: "recent", items: [{ algo_id: "algo-live-1", name: "BTC Grid", symbol: "BTCUSDT", exchange_symbol: "BTC-USDT-SWAP", updated_at: nowIso(), state: "running", side: "long" }] }));
       return;
     }
     if (path === "/api/v1/live/snapshot" && method === "POST") {
@@ -262,33 +208,19 @@ async function mockApi(page: Page, options: MockApiOptions = {}): Promise<MockCa
       return;
     }
     if (path === "/api/v1/optimization/opt-job-1/progress" && method === "GET") {
-      await route.fulfill(
-        jsonResponse({
-          job: optimizationMeta("completed"),
-          target: "return_drawdown_ratio"
-        })
-      );
+      const payload = options.optimizationProgressPlan?.[Math.min(optimizationProgressCall, (options.optimizationProgressPlan?.length ?? 1) - 1)] ?? { job: optimizationMeta("completed"), target: "return_drawdown_ratio" };
+      optimizationProgressCall += 1;
+      await route.fulfill(jsonResponse(payload));
       return;
     }
     if (path === "/api/v1/optimization/opt-job-1" && method === "GET") {
-      await route.fulfill(jsonResponse(statusPayload));
+      const payload = options.optimizationStatusPlan?.[Math.min(optimizationStatusCall, (options.optimizationStatusPlan?.length ?? 1) - 1)] ?? statusPayload;
+      optimizationStatusCall += 1;
+      await route.fulfill(jsonResponse(payload));
       return;
     }
     if (path === "/api/v1/optimization/opt-job-1/rows" && method === "GET") {
-      await route.fulfill(
-        jsonResponse({
-          job: optimizationMeta("completed"),
-          target: "return_drawdown_ratio",
-          sort_by: "robust_score",
-          sort_order: "desc",
-          page: 1,
-          page_size: 20,
-          total_results: 1,
-          rows: [optimizationRow()],
-          best_row: optimizationRow(),
-          best_validation_row: null
-        })
-      );
+      await route.fulfill(jsonResponse({ job: optimizationMeta("completed"), target: "return_drawdown_ratio", sort_by: "robust_score", sort_order: "desc", page: 1, page_size: 20, total_results: 1, rows: [optimizationRow()], best_row: optimizationRow(), best_validation_row: null }));
       return;
     }
     if (path === "/api/v1/optimization-history" && method === "GET") {
@@ -297,12 +229,7 @@ async function mockApi(page: Page, options: MockApiOptions = {}): Promise<MockCa
         await route.fulfill(jsonResponse(options.historyAfterCursor[cursor]));
         return;
       }
-      await route.fulfill(
-        jsonResponse({
-          items: options.historyItems ?? defaultHistoryItems,
-          next_cursor: options.historyNextCursor ?? null
-        })
-      );
+      await route.fulfill(jsonResponse({ items: options.historyItems ?? defaultHistoryItems, next_cursor: options.historyNextCursor ?? null }));
       return;
     }
     if (path === "/api/v1/optimization-history/selected" && method === "DELETE") {
@@ -310,49 +237,19 @@ async function mockApi(page: Page, options: MockApiOptions = {}): Promise<MockCa
       const requestedIds = url.searchParams.getAll("job_id");
       const plan = options.clearSelectedPlan?.[calls.clearSelectedCalls - 1];
       if (plan) {
-        const failedItems =
-          plan.failed_items ??
-          requestedIds.slice(0, plan.failed).map((jobId) => ({
-            job_id: jobId,
-            reason_code: "REQUEST_FAILED",
-            reason_message: "mock failed"
-          }));
+        const failedItems = plan.failed_items ?? requestedIds.slice(0, plan.failed).map((job_id) => ({ job_id, reason_code: "REQUEST_FAILED", reason_message: "mock failed" }));
         const failedJobIds = failedItems.map((item) => item.job_id);
         const failedSet = new Set(failedJobIds);
         const deletedJobIds = requestedIds.filter((jobId) => !failedSet.has(jobId)).slice(0, plan.deleted);
-        await route.fulfill(
-          jsonResponse({
-            requested: requestedIds.length,
-            deleted: plan.deleted,
-            failed: plan.failed,
-            deleted_job_ids: deletedJobIds,
-            failed_job_ids: failedJobIds,
-            failed_items: failedItems,
-            summary_text: plan.summary_text
-          })
-        );
+        await route.fulfill(jsonResponse({ requested: requestedIds.length, deleted: plan.deleted, failed: plan.failed, deleted_job_ids: deletedJobIds, failed_job_ids: failedJobIds, failed_items: failedItems, summary_text: plan.summary_text }));
         return;
       }
-      await route.fulfill(
-        jsonResponse({
-          requested: requestedIds.length,
-          deleted: requestedIds.length,
-          failed: 0,
-          deleted_job_ids: requestedIds,
-          failed_job_ids: [],
-          failed_items: []
-        })
-      );
+      await route.fulfill(jsonResponse({ requested: requestedIds.length, deleted: requestedIds.length, failed: 0, deleted_job_ids: requestedIds, failed_job_ids: [], failed_items: [] }));
       return;
     }
     if (path === "/api/v1/operations" && method === "GET") {
       calls.operationListCalls += 1;
-      await route.fulfill(
-        jsonResponse({
-          items: options.operationsList ?? [],
-          next_cursor: null
-        })
-      );
+      await route.fulfill(jsonResponse({ items: options.operationsList ?? [], next_cursor: null }));
       return;
     }
     if (path.startsWith("/api/v1/operations/") && method === "GET") {
@@ -368,11 +265,7 @@ async function mockApi(page: Page, options: MockApiOptions = {}): Promise<MockCa
     }
     if (path === "/api/v1/optimization/opt-job-1/export" && method === "GET") {
       calls.exportCalls += 1;
-      await route.fulfill({
-        status: 200,
-        contentType: "text/csv",
-        body: "row_id,score\n1,2.95\n"
-      });
+      await route.fulfill({ status: 200, contentType: "text/csv", body: "row_id,score\n1,2.95\n" });
       return;
     }
 
@@ -382,14 +275,7 @@ async function mockApi(page: Page, options: MockApiOptions = {}): Promise<MockCa
   return calls;
 }
 
-test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => {
-    window.localStorage.clear();
-    window.sessionStorage.clear();
-  });
-});
-
-async function login(page: Page): Promise<void> {
+export async function login(page: Page): Promise<void> {
   await expect(page.getByPlaceholder("X-API-Key（可选）")).toHaveCount(0);
   const viewport = page.viewportSize();
   if (!viewport || viewport.width > 767) {
@@ -403,64 +289,3 @@ async function login(page: Page): Promise<void> {
     await expect(page.locator('[data-tour-id="mobile-parameter-wizard"]')).toBeVisible();
   }
 }
-
-test("runtime auth login works", async ({ page }) => {
-  await mockApi(page);
-  await page.goto("/");
-  await login(page);
-});
-
-test("backtest start sends idempotency key", async ({ page }) => {
-  const calls = await mockApi(page);
-  await page.goto("/");
-  await login(page);
-
-  await page.getByRole("button", { name: "开始回测" }).click();
-  await expect.poll(() => calls.backtestStartIdempotencyKeys.length).toBe(1);
-  expect(calls.backtestStartIdempotencyKeys[0]).toBeTruthy();
-});
-
-test("optimization start sends idempotency key", async ({ page }) => {
-  const calls = await mockApi(page);
-  await page.goto("/");
-  await login(page);
-
-  await page.getByRole("button", { name: "参数优化" }).click();
-  await page.getByRole("button", { name: "开始参数优化" }).click();
-
-  await expect.poll(() => calls.optimizationStartIdempotencyKeys.length).toBe(1);
-  expect(calls.optimizationStartIdempotencyKeys[0]).toBeTruthy();
-});
-
-test("optimization export triggers csv endpoint", async ({ page }) => {
-  const calls = await mockApi(page);
-  await page.goto("/");
-  await login(page);
-
-  await page.getByRole("button", { name: "参数优化" }).click();
-  await page.getByRole("button", { name: "历史" }).click();
-  await page.getByRole("button", { name: "查看" }).first().click();
-  await page.getByRole("button", { name: "导出优化 CSV" }).click();
-
-  await expect.poll(() => calls.exportCalls).toBe(1);
-});
-
-test("apply optimization params back to backtest", async ({ page }) => {
-  await mockApi(page);
-  await page.goto("/");
-  await login(page);
-
-  await page.getByRole("button", { name: "参数优化" }).click();
-  await page.getByRole("button", { name: "历史" }).click();
-  await page.getByRole("button", { name: "查看" }).first().click();
-  await page.getByRole("button", { name: "结果" }).click();
-  await page.getByRole("button", { name: "应用到回测模块" }).first().click();
-
-  await expect(page.getByRole("spinbutton").nth(0)).toHaveValue("65000");
-  await expect(page.getByRole("spinbutton").nth(1)).toHaveValue("71000");
-  await expect(page.getByRole("button", { name: "回测", exact: true })).toHaveClass(/is-active/);
-});
-
-
-
-
