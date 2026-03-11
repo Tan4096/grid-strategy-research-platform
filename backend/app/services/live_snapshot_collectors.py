@@ -211,13 +211,37 @@ def okx_bot_get_sub_orders(payload: LiveSnapshotRequest, entry_type: str, *, lim
 
 
 def build_okx_bot_position(detail: dict[str, Any], *, normalize_position_side, first_present, safe_float, optional_float) -> LivePosition:
-    quantity = safe_float(first_present(detail, "sz", "pos", "position", "quantity"), fallback=0.0)
+    mark_price = safe_float(
+        first_present(detail, "markPx", "markPrice", "lastPrice", "last", "runPx"),
+        fallback=0.0,
+    )
+    quantity = safe_float(first_present(detail, "curBaseSz", "baseSz", "pos", "position", "quantity"), fallback=0.0)
+    if abs(quantity) <= 1e-9:
+        quote_size = safe_float(first_present(detail, "curQuoteSz", "quoteSz"), fallback=0.0)
+        if quote_size > 0 and mark_price > 0:
+            quantity = quote_size / mark_price
+
+    notional = safe_float(first_present(detail, "notionalUsd", "notional", "positionNotional", "curQuoteSz"), fallback=0.0)
+    if notional <= 0:
+        actual_leverage = safe_float(first_present(detail, "actualLever", "actualLeverage"), fallback=0.0)
+        investment = safe_float(first_present(detail, "investment", "investAmt", "invest", "sz"), fallback=0.0)
+        if actual_leverage > 0 and investment > 0:
+            notional = actual_leverage * investment
+    if notional <= 0 and quantity > 0 and mark_price > 0:
+        notional = abs(quantity * mark_price)
+    if quantity <= 0 and mark_price > 0 and notional > 0:
+        quantity = notional / mark_price
+    if quantity > 0 and mark_price > 0 and notional > 0 and abs(quantity * mark_price) > 0:
+        inferred_quantity = notional / mark_price
+        if inferred_quantity > 0 and abs(quantity - inferred_quantity) / inferred_quantity > 0.5:
+            quantity = inferred_quantity
+
     return LivePosition(
         side=normalize_position_side(first_present(detail, "posSide", "side", "direction"), quantity=quantity),
         quantity=abs(quantity),
         entry_price=safe_float(first_present(detail, "avgPx", "avgPrice", "entryPrice"), fallback=0.0),
-        mark_price=safe_float(first_present(detail, "markPx", "markPrice", "lastPrice", "last"), fallback=0.0),
-        notional=safe_float(first_present(detail, "notionalUsd", "notional", "positionNotional"), fallback=0.0),
+        mark_price=mark_price,
+        notional=abs(notional),
         leverage=optional_float(first_present(detail, "lever", "leverage")),
         liquidation_price=optional_float(first_present(detail, "liqPx", "liquidationPx")),
         margin_mode=first_present(detail, "mgnMode", "marginMode") or None,
@@ -254,7 +278,7 @@ def build_okx_bot_open_orders(items: list[dict[str, Any]], *, first_present, saf
 def build_okx_bot_fills(items: list[dict[str, Any]], *, first_present, safe_float, coerce_text, normalize_order_side, optional_datetime, sort_and_dedupe_fills) -> list[LiveFill]:
     fills: list[LiveFill] = []
     for item in items:
-        trade_id = coerce_text(first_present(item, "tradeId", "fillId", "billId"))
+        trade_id = coerce_text(first_present(item, "tradeId", "fillId", "billId", "ordId"))
         if not trade_id:
             continue
         fills.append(
@@ -262,13 +286,14 @@ def build_okx_bot_fills(items: list[dict[str, Any]], *, first_present, safe_floa
                 trade_id=trade_id,
                 order_id=coerce_text(first_present(item, "ordId", "orderId")) or None,
                 side=normalize_order_side(first_present(item, "side", "direction")),
-                price=safe_float(first_present(item, "fillPx", "px", "price"), fallback=0.0),
-                quantity=abs(safe_float(first_present(item, "fillSz", "sz", "quantity"), fallback=0.0)),
+                price=safe_float(first_present(item, "fillPx", "avgPx", "px", "price"), fallback=0.0),
+                quantity=abs(safe_float(first_present(item, "fillSz", "accFillSz", "sz", "quantity"), fallback=0.0)),
                 realized_pnl=safe_float(first_present(item, "fillPnl", "pnl", "realizedPnl"), fallback=0.0),
                 fee=abs(safe_float(first_present(item, "fee", "fillFee"), fallback=0.0)),
                 fee_currency=coerce_text(first_present(item, "feeCcy", "feeCurrency")) or None,
                 is_maker=None,
-                timestamp=optional_datetime(first_present(item, "fillTime", "cTime", "timestamp")) or datetime.now(timezone.utc),
+                placed_at=optional_datetime(first_present(item, "cTime", "createdTime", "timestamp")),
+                timestamp=optional_datetime(first_present(item, "fillTime", "uTime", "cTime", "timestamp")) or datetime.now(timezone.utc),
             )
         )
     return sort_and_dedupe_fills(fills)
@@ -420,6 +445,7 @@ def build_okx_robot_overview(detail: dict[str, Any], *, algo_id: str, position: 
         lower_price=lower_price,
         upper_price=upper_price,
         grid_spacing=grid_spacing,
+        single_amount=optional_float(first_present(detail, "singleAmt", "singleAmount")),
         grid_profit=optional_float(first_present(detail, "gridProfit", "realizedPnl", "pnl", "profit")),
         floating_profit=optional_float(first_present(detail, "floatProfit", "upl", "unrealizedPnl")),
         total_fee=abs(optional_float(total_fee_raw) or 0.0) if total_fee_raw is not None else None,

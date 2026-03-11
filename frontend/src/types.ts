@@ -18,6 +18,7 @@ export interface LiveMonitoringTrendPoint {
   floating_profit: number;
   funding_fee: number;
   notional: number;
+  mark_price?: number;
 }
 
 export interface LiveComparisonMetric {

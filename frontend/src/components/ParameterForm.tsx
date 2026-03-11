@@ -362,7 +362,7 @@ export default function ParameterForm({
     <aside className="card fade-up w-full p-3 sm:p-4">
       <div className="space-y-4">
         <div>
-          <h1 className="text-base font-semibold text-slate-100 sm:text-lg">Crypto网格策略回测工具</h1>
+          <h1 className="text-base font-semibold text-slate-100 sm:text-lg">Grid Strategy Research Platform</h1>
         </div>
 
         {isMobileViewport && (

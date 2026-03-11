@@ -30,6 +30,7 @@ test-results/
 playwright-report/
 release/*.tar.gz
 release/*.zip
+release/mobile-final-checklist.md
 
 # Editors
 .idea/

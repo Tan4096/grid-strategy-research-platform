@@ -191,6 +191,7 @@ export interface MarketParamsResponse {
   funding_interval_hours: number;
   price_tick_size: number;
   quantity_step_size: number;
+  contract_size_base?: number | null;
   min_notional: number;
   reference_price?: number | null;
   fetched_at: string;
@@ -222,6 +223,7 @@ export interface LiveRobotListItem {
   run_type?: string | null;
   configured_leverage?: number | null;
   investment_usdt?: number | null;
+  strategy_start_price?: number | null;
   lower_price?: number | null;
   upper_price?: number | null;
   grid_count?: number | null;
@@ -276,6 +278,7 @@ export interface LiveRobotOverview {
   created_at?: string | null;
   updated_at?: string | null;
   investment_usdt?: number | null;
+  strategy_start_price?: number | null;
   configured_leverage?: number | null;
   actual_leverage?: number | null;
   liquidation_price?: number | null;
@@ -283,6 +286,7 @@ export interface LiveRobotOverview {
   lower_price?: number | null;
   upper_price?: number | null;
   grid_spacing?: number | null;
+  single_amount?: number | null;
   grid_profit?: number | null;
   floating_profit?: number | null;
   total_fee?: number | null;
@@ -329,6 +333,7 @@ export interface LiveFill {
   fee: number;
   fee_currency?: string | null;
   is_maker?: boolean | null;
+  placed_at?: string | null;
   timestamp: string;
 }
 

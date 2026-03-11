@@ -11,6 +11,15 @@ const scriptsDir = path.dirname(__filename);
 const frontendDir = path.dirname(scriptsDir);
 const repoRoot = path.dirname(frontendDir);
 const outputDir = path.join(repoRoot, "docs", "assets");
+const screenshotPrefix = process.env.SCREENSHOT_PREFIX ?? "readme";
+const screenshotAccent = process.env.SCREENSHOT_THEME_COLOR ?? "#14b8a6";
+const screenshotBackgroundPreset = process.env.SCREENSHOT_BACKGROUND_PRESET ?? "deep";
+const screenshotBackgroundColor = process.env.SCREENSHOT_BACKGROUND_COLOR ?? "#0f172a";
+const screenshotColorScheme =
+  process.env.SCREENSHOT_COLOR_SCHEME ??
+  (screenshotBackgroundPreset === "paper" || screenshotBackgroundColor.toLowerCase() === "#ffffff"
+    ? "light"
+    : "dark");
 const BACKTEST_STORAGE_VERSION = 2;
 const OPTIMIZATION_STORAGE_VERSION = 2;
 const BACKTEST_JOB_ID = "bt-readme-1";
@@ -18,17 +27,23 @@ const OPTIMIZATION_JOB_ID = "opt-readme-1";
 const LIVE_SYMBOL = "BTCUSDT";
 const LIVE_START_TIME = "2026-02-01T00:00:00+08:00";
 const LIVE_ALGO_ID = "okx-grid-bot-demo-01";
+const useRealMarketData = process.env.SCREENSHOT_REAL_MARKET_DATA === "1";
+const REAL_BTC_SYMBOL = "BTCUSDT";
+const REAL_BTC_SOURCE = "binance";
+const REAL_BTC_INTERVAL = "1d";
+const REAL_BTC_START_TIME = "2026-02-08T00:00:00+08:00";
+const REAL_BTC_END_TIME = "2026-03-08T23:59:59+08:00";
 
 function buildDemoBacktestRequest() {
   return {
     strategy: {
       side: "long",
-      lower: 65200,
-      upper: 72600,
-      grids: 12,
+      lower: 66400,
+      upper: 70600,
+      grids: 8,
       leverage: 6,
       margin: 2500,
-      stop_loss: 63800,
+      stop_loss: 65750,
       use_base_position: true,
       strict_risk_control: false,
       reopen_after_stop: true,
@@ -107,44 +122,278 @@ function isoAtHour(day, hour) {
   return `2026-02-${String(day).padStart(2, "0")}T${String(hour).padStart(2, "0")}:00:00+08:00`;
 }
 
+function toShanghaiIso(timestampMs) {
+  return new Date(timestampMs + 8 * 60 * 60 * 1000).toISOString().replace("Z", "+08:00");
+}
+
+function roundDown(value, step) {
+  return Math.floor(value / step) * step;
+}
+
+function roundUp(value, step) {
+  return Math.ceil(value / step) * step;
+}
+
+async function buildRealBacktestFixture() {
+  const params = new URLSearchParams({
+    symbol: REAL_BTC_SYMBOL,
+    interval: REAL_BTC_INTERVAL,
+    startTime: String(Date.parse(REAL_BTC_START_TIME)),
+    endTime: String(Date.parse(REAL_BTC_END_TIME)),
+    limit: "1000"
+  });
+  const response = await fetch(`https://api.binance.com/api/v3/klines?${params.toString()}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch Binance klines: ${response.status}`);
+  }
+  const raw = await response.json();
+  if (!Array.isArray(raw) || raw.length === 0) {
+    throw new Error("Binance kline response is empty");
+  }
+
+  const candles = raw.map((item) => ({
+    timestamp: toShanghaiIso(Number(item[0])),
+    open: Number(item[1]),
+    high: Number(item[2]),
+    low: Number(item[3]),
+    close: Number(item[4]),
+    volume: Number(item[5])
+  }));
+
+  const firstClose = candles[0].close;
+  const lastClose = candles[candles.length - 1].close;
+  const minLow = Math.min(...candles.map((item) => item.low));
+  const maxHigh = Math.max(...candles.map((item) => item.high));
+  const lower = roundDown(minLow, 200);
+  const upper = roundUp(maxHigh, 200);
+  const stopLoss = lower - 600;
+  const gridCount = 8;
+  const gridStep = (upper - lower) / (gridCount - 1);
+  const gridLines = Array.from({ length: gridCount }, (_, index) => Number((lower + gridStep * index).toFixed(2)));
+
+  let equity = 2500;
+  let peakEquity = equity;
+  const equityCurve = [];
+  const drawdownCurve = [];
+  const unrealizedCurve = [];
+  const marginRatioCurve = [];
+  const leverageCurve = [];
+  const liquidationCurve = [];
+  const trades = [];
+  const events = [
+    {
+      timestamp: candles[0].timestamp,
+      event_type: "grid_init",
+      price: Number(firstClose.toFixed(2)),
+      message: "使用 Binance 真实 BTC 日线初始化网格区间",
+      payload: { source: REAL_BTC_SOURCE, interval: REAL_BTC_INTERVAL }
+    }
+  ];
+
+  candles.forEach((candle, index) => {
+    const range = candle.high - candle.low;
+    const body = Math.abs(candle.close - candle.open);
+    const dailyPnl = Math.max(8, range * 0.03 - body * 0.012 - 10);
+    equity += dailyPnl;
+    peakEquity = Math.max(peakEquity, equity);
+    const drawdownPct = peakEquity > 0 ? ((peakEquity - equity) / peakEquity) * 100 : 0;
+    equityCurve.push({ timestamp: candle.timestamp, value: Number(equity.toFixed(2)) });
+    drawdownCurve.push({ timestamp: candle.timestamp, value: Number(drawdownPct.toFixed(2)) });
+    unrealizedCurve.push({ timestamp: candle.timestamp, value: Number((((candle.close - firstClose) / firstClose) * 320).toFixed(2)) });
+    marginRatioCurve.push({ timestamp: candle.timestamp, value: Number((20 + index * 0.55).toFixed(2)) });
+    leverageCurve.push({ timestamp: candle.timestamp, value: Number((2.3 + index * 0.05).toFixed(2)) });
+    liquidationCurve.push({ timestamp: candle.timestamp, value: Number((stopLoss + index * 18).toFixed(2)) });
+    if (index > 0 && index % 6 === 0) {
+      trades.push({
+        open_time: candles[index - 1].timestamp,
+        close_time: candle.timestamp,
+        side: "long",
+        entry_price: Number(candles[index - 1].close.toFixed(2)),
+        exit_price: Number(candle.close.toFixed(2)),
+        quantity: 0.012,
+        gross_pnl: Number(((candle.close - candles[index - 1].close) * 0.012).toFixed(2)),
+        net_pnl: Number((((candle.close - candles[index - 1].close) * 0.012) - 1.1).toFixed(2)),
+        fee_paid: 1.1,
+        holding_hours: 24,
+        close_reason: candle.close >= candles[index - 1].close ? "grid_take_profit" : "stop_loss"
+      });
+    }
+  });
+
+  const totalReturnUsdt = equity - 2500;
+  const totalReturnPct = (totalReturnUsdt / 2500) * 100;
+  const maxDrawdownPct = Math.max(...drawdownCurve.map((item) => item.value));
+  events.push({
+    timestamp: candles[Math.floor(candles.length / 2)].timestamp,
+    event_type: "market_snapshot",
+    price: Number(candles[Math.floor(candles.length / 2)].close.toFixed(2)),
+    message: "市场进入区间震荡阶段",
+    payload: null
+  });
+  events.push({
+    timestamp: candles[candles.length - 1].timestamp,
+    event_type: "range_complete",
+    price: Number(lastClose.toFixed(2)),
+    message: "结束真实行情展示区间",
+    payload: { from: REAL_BTC_START_TIME, to: REAL_BTC_END_TIME }
+  });
+
+  return {
+    request: {
+      strategy: {
+        side: "long",
+        lower,
+        upper,
+        grids: gridCount,
+        leverage: 6,
+        margin: 2500,
+        stop_loss: stopLoss,
+        use_base_position: true,
+        strict_risk_control: false,
+        reopen_after_stop: true,
+        fee_rate: 0.0004,
+        maker_fee_rate: 0.0002,
+        taker_fee_rate: 0.00045,
+        slippage: 0.0002,
+        maintenance_margin_rate: 0.005,
+        funding_rate_per_8h: 0.0001,
+        funding_interval_hours: 8,
+        use_mark_price_for_liquidation: false,
+        price_tick_size: 0.1,
+        quantity_step_size: 0.001,
+        min_notional: 1,
+        max_allowed_loss_usdt: 420
+      },
+      data: {
+        source: REAL_BTC_SOURCE,
+        symbol: REAL_BTC_SYMBOL,
+        interval: REAL_BTC_INTERVAL,
+        lookback_days: candles.length,
+        start_time: REAL_BTC_START_TIME,
+        end_time: REAL_BTC_END_TIME
+      }
+    },
+    result: {
+      summary: {
+        initial_margin: 2500,
+        final_equity: Number(equity.toFixed(2)),
+        total_return_usdt: Number(totalReturnUsdt.toFixed(2)),
+        total_return_pct: Number(totalReturnPct.toFixed(2)),
+        annualized_return_pct: Number((totalReturnPct * (365 / candles.length)).toFixed(2)),
+        average_round_profit: Number((trades.reduce((sum, item) => sum + item.net_pnl, 0) / Math.max(trades.length, 1)).toFixed(2)),
+        max_drawdown_pct: Number(maxDrawdownPct.toFixed(2)),
+        max_single_loss: Number(Math.min(...trades.map((item) => item.net_pnl), 0).toFixed(2)),
+        stop_loss_count: trades.filter((item) => item.close_reason === "stop_loss").length,
+        liquidation_count: 0,
+        full_grid_profit_count: trades.filter((item) => item.close_reason === "grid_take_profit").length,
+        win_rate: Number((trades.filter((item) => item.net_pnl > 0).length / Math.max(trades.length, 1)).toFixed(2)),
+        average_holding_hours: 24,
+        total_closed_trades: trades.length,
+        status: "completed",
+        fees_paid: Number((trades.length * 1.1).toFixed(2)),
+        funding_paid: 0,
+        funding_net: 0,
+        funding_statement_amount: 0,
+        use_base_position: true,
+        base_grid_count: 2,
+        initial_position_size: 0.08,
+        max_possible_loss_usdt: 420
+      },
+      candles,
+      grid_lines: gridLines,
+      equity_curve: equityCurve,
+      drawdown_curve: drawdownCurve,
+      unrealized_pnl_curve: unrealizedCurve,
+      margin_ratio_curve: marginRatioCurve,
+      leverage_usage_curve: leverageCurve,
+      liquidation_price_curve: liquidationCurve,
+      trades,
+      events,
+      analysis: {
+        risk_level: "low",
+        structure_dependency: "mixed",
+        overfitting_flag: false,
+        validation_degradation_pct: 6.2,
+        liquidation_risk: "low",
+        stability_score: 82,
+        diagnosis_tags: ["真实 BTC 行情", "区间震荡", "适合展示网格研究流程"],
+        ai_explanation: `截图使用 Binance ${REAL_BTC_SYMBOL} 在 2026-02-08 至 2026-03-08 的真实日线行情。`
+      },
+      scoring: {
+        profit_score: 80,
+        risk_score: 78,
+        stability_score: 83,
+        robustness_score: 79,
+        behavior_score: 76,
+        final_score: 79,
+        grade: "B",
+        profit_reasons: ["震荡阶段有利于网格捕捉波动"],
+        risk_reasons: ["展示区间内未触发强平"],
+        stability_reasons: ["价格主要在区间内往返波动"],
+        robustness_reasons: ["区间宽度与价格振幅匹配"],
+        behavior_reasons: ["适合作为真实行情展示样本"]
+      }
+    },
+    anchor_price: Number(firstClose.toFixed(2)),
+    anchor_time: candles[0].timestamp,
+    candle_count: candles.length
+  };
+}
+
 function buildDemoBacktestResult() {
-  const candles = Array.from({ length: 16 }, (_, index) => {
-    const open = 66600 + index * 180 + (index % 3) * 25;
-    const close = open + 90 - (index % 4) * 22;
-    const high = Math.max(open, close) + 120;
-    const low = Math.min(open, close) - 110;
+  const closeSeries = [
+    66780, 67160, 66940, 67480, 67820, 67560, 68140, 68420,
+    68260, 68880, 69240, 68960, 69520, 69980, 69620, 70240
+  ];
+  const bodyOffsets = [
+    -180, 220, -140, 260, 180, -210, 240, 160,
+    -120, 220, 180, -200, 240, 180, -160, 220
+  ];
+  const highOffsets = [
+    220, 180, 210, 200, 190, 180, 240, 200,
+    170, 210, 190, 200, 220, 180, 210, 190
+  ];
+  const lowOffsets = [
+    180, 170, 190, 160, 170, 200, 180, 170,
+    160, 180, 170, 210, 180, 170, 190, 180
+  ];
+
+  const candles = closeSeries.map((close, index) => {
+    const open = close - bodyOffsets[index];
+    const high = Math.max(open, close) + highOffsets[index];
+    const low = Math.min(open, close) - lowOffsets[index];
     return {
       timestamp: isoAtHour(1 + Math.floor(index / 8), index % 8),
       open,
       high,
       low,
       close,
-      volume: 900 + index * 35
+      volume: 980 + index * 42 + (index % 3) * 18
     };
   });
   const equityCurve = candles.map((item, index) => ({
     timestamp: item.timestamp,
-    value: 2500 + index * 68 + (index % 3) * 14
+    value: 2500 + index * 64 + (index % 4) * 18
   }));
   const drawdownCurve = candles.map((item, index) => ({
     timestamp: item.timestamp,
-    value: Math.max(0, 3.8 - index * 0.12 + (index % 4) * 0.08)
+    value: Math.max(0, 4.6 - index * 0.14 + (index % 5) * 0.07)
   }));
   const unrealizedCurve = candles.map((item, index) => ({
     timestamp: item.timestamp,
-    value: -80 + index * 24 - (index % 5) * 12
+    value: -120 + index * 28 - (index % 4) * 15
   }));
   const marginRatioCurve = candles.map((item, index) => ({
     timestamp: item.timestamp,
-    value: 22 + index * 1.4
+    value: 21 + index * 1.55
   }));
   const leverageCurve = candles.map((item, index) => ({
     timestamp: item.timestamp,
-    value: 2.2 + index * 0.09
+    value: 2.1 + index * 0.1
   }));
   const liquidationCurve = candles.map((item, index) => ({
     timestamp: item.timestamp,
-    value: 62800 + index * 55
+    value: 65080 + index * 34
   }));
 
   return {
@@ -174,7 +423,7 @@ function buildDemoBacktestResult() {
       max_possible_loss_usdt: 420
     },
     candles,
-    grid_lines: [65200, 66000, 66800, 67600, 68400, 69200, 70000, 70800, 71600, 72400],
+    grid_lines: [66400, 67000, 67600, 68200, 68800, 69400, 70000, 70600],
     equity_curve: equityCurve,
     drawdown_curve: drawdownCurve,
     unrealized_pnl_curve: unrealizedCurve,
@@ -199,12 +448,12 @@ function buildDemoBacktestResult() {
         open_time: isoAtHour(1, 5),
         close_time: isoAtHour(1, 7),
         side: "long",
-        entry_price: 67240,
-        exit_price: 68020,
+        entry_price: 67580,
+        exit_price: 68420,
         quantity: 0.012,
-        gross_pnl: 9.36,
-        net_pnl: 8.82,
-        fee_paid: 0.54,
+        gross_pnl: 10.08,
+        net_pnl: 9.46,
+        fee_paid: 0.62,
         holding_hours: 2,
         close_reason: "grid_take_profit"
       },
@@ -212,12 +461,12 @@ function buildDemoBacktestResult() {
         open_time: isoAtHour(2, 0),
         close_time: isoAtHour(2, 3),
         side: "long",
-        entry_price: 68140,
+        entry_price: 68240,
         exit_price: 69210,
         quantity: 0.016,
-        gross_pnl: 17.12,
-        net_pnl: 16.2,
-        fee_paid: 0.92,
+        gross_pnl: 15.52,
+        net_pnl: 14.66,
+        fee_paid: 0.86,
         holding_hours: 3,
         close_reason: "grid_take_profit"
       },
@@ -225,12 +474,12 @@ function buildDemoBacktestResult() {
         open_time: isoAtHour(2, 3),
         close_time: isoAtHour(2, 5),
         side: "long",
-        entry_price: 68860,
-        exit_price: 68300,
+        entry_price: 68980,
+        exit_price: 68540,
         quantity: 0.02,
-        gross_pnl: -11.2,
-        net_pnl: -12.05,
-        fee_paid: 0.85,
+        gross_pnl: -8.8,
+        net_pnl: -9.64,
+        fee_paid: 0.84,
         holding_hours: 2,
         close_reason: "stop_loss"
       },
@@ -238,21 +487,21 @@ function buildDemoBacktestResult() {
         open_time: isoAtHour(2, 5),
         close_time: isoAtHour(2, 7),
         side: "long",
-        entry_price: 68980,
-        exit_price: 70420,
+        entry_price: 69640,
+        exit_price: 70240,
         quantity: 0.018,
-        gross_pnl: 25.92,
-        net_pnl: 24.71,
-        fee_paid: 1.21,
+        gross_pnl: 10.8,
+        net_pnl: 9.93,
+        fee_paid: 0.87,
         holding_hours: 2,
         close_reason: "grid_take_profit"
       }
     ],
     events: [
-      { timestamp: isoAtHour(1, 0), event_type: "grid_init", price: 66600, message: "初始化网格区间", payload: null },
+      { timestamp: isoAtHour(1, 0), event_type: "grid_init", price: 66680, message: "初始化网格区间", payload: null },
       { timestamp: isoAtHour(1, 4), event_type: "take_profit", price: 67680, message: "触发上沿止盈", payload: { grid: 3 } },
-      { timestamp: isoAtHour(2, 2), event_type: "funding", price: 68720, message: "结算资金费", payload: { funding_pnl: -2.4 } },
-      { timestamp: isoAtHour(2, 5), event_type: "stop_loss", price: 68300, message: "触发保护性止损", payload: { anchor_price: 68860 } }
+      { timestamp: isoAtHour(2, 2), event_type: "funding", price: 69020, message: "结算资金费", payload: { funding_pnl: -2.4 } },
+      { timestamp: isoAtHour(2, 5), event_type: "stop_loss", price: 68540, message: "触发保护性止损", payload: { anchor_price: 68980 } }
     ],
     analysis: {
       risk_level: "low",
@@ -646,6 +895,37 @@ const demoHistoryItems = buildHistoryItems();
 const demoLiveSnapshot = buildLiveSnapshot();
 const demoTrendHistory = buildTrendHistory();
 
+let backtestFixturePromise;
+
+function getBacktestFixture() {
+  if (!backtestFixturePromise) {
+    backtestFixturePromise = (async () => {
+      if (!useRealMarketData) {
+        return {
+          request: demoBacktestRequest,
+          result: demoBacktestResult,
+          anchor_price: demoBacktestResult.candles[0]?.close ?? 69200,
+          anchor_time: demoBacktestResult.candles[0]?.timestamp ?? LIVE_START_TIME,
+          candle_count: demoBacktestResult.candles.length
+        };
+      }
+      try {
+        return await buildRealBacktestFixture();
+      } catch (error) {
+        console.warn('[capture-readme-screenshots] failed to fetch real BTC data, falling back to demo data', error);
+        return {
+          request: demoBacktestRequest,
+          result: demoBacktestResult,
+          anchor_price: demoBacktestResult.candles[0]?.close ?? 69200,
+          anchor_time: demoBacktestResult.candles[0]?.timestamp ?? LIVE_START_TIME,
+          candle_count: demoBacktestResult.candles.length
+        };
+      }
+    })();
+  }
+  return backtestFixturePromise;
+}
+
 function ssePayload(jobId, jobType, payload, status = "completed", progress = 100) {
   return `event: update\ndata: ${JSON.stringify({
     job_id: jobId,
@@ -713,16 +993,18 @@ async function installMockRoutes(page) {
     const method = request.method().toUpperCase();
 
     if (pathName === "/api/v1/backtest/defaults" && method === "GET") {
-      await route.fulfill(jsonResponse(demoBacktestRequest));
+      const backtestFixture = await getBacktestFixture();
+      await route.fulfill(jsonResponse(backtestFixture.request));
       return;
     }
     if (pathName === "/api/v1/backtest/anchor-price" && method === "POST") {
+      const backtestFixture = await getBacktestFixture();
       await route.fulfill(
         jsonResponse({
-          anchor_price: 69200,
-          anchor_time: LIVE_START_TIME,
+          anchor_price: backtestFixture.anchor_price,
+          anchor_time: backtestFixture.anchor_time,
           anchor_source: "first_candle_close",
-          candle_count: 240
+          candle_count: backtestFixture.candle_count
         })
       );
       return;
@@ -736,6 +1018,7 @@ async function installMockRoutes(page) {
       return;
     }
     if (pathName === `/api/v1/backtest/${BACKTEST_JOB_ID}` && method === "GET") {
+      const backtestFixture = await getBacktestFixture();
       await route.fulfill(
         jsonResponse({
           job: {
@@ -748,7 +1031,7 @@ async function installMockRoutes(page) {
             message: "回测完成",
             error: null
           },
-          result: demoBacktestResult
+          result: backtestFixture.result
         })
       );
       return;
@@ -758,6 +1041,7 @@ async function installMockRoutes(page) {
       return;
     }
     if (pathName === `/api/v1/jobs/${BACKTEST_JOB_ID}/stream`) {
+      const backtestFixture = await getBacktestFixture();
       await route.fulfill({
         status: 200,
         headers: {
@@ -779,7 +1063,7 @@ async function installMockRoutes(page) {
               message: "回测完成",
               error: null
             },
-            result: demoBacktestResult
+            result: backtestFixture.result
           }
         )
       });
@@ -902,12 +1186,15 @@ async function installMockRoutes(page) {
   });
 }
 
-async function seedStorage(page) {
+async function seedStorage(page, backtestRequestSeed = demoBacktestRequest) {
   const trendKey = `okx|${LIVE_SYMBOL}|${LIVE_START_TIME}|${LIVE_ALGO_ID}`;
   await page.addInitScript(
     ({
       backtestRequest,
       optimizationConfig,
+      strategyTemplates,
+      optimizationTemplates,
+      themeSettings,
       liveDraft,
       liveMonitoringPreferences,
       trendKeyValue,
@@ -924,6 +1211,8 @@ async function seedStorage(page) {
       };
       writeVersioned("btc-grid-backtest:last-backtest-request:v2", 2, backtestRequest);
       writeVersioned("btc-grid-backtest:last-optimization-config:v2", 2, optimizationConfig);
+      writePlainLocal("btc-grid-backtest:strategy-templates:v2", strategyTemplates);
+      writePlainLocal("btc-grid-backtest:optimization-templates:v2", optimizationTemplates);
 
       sessionStorage.setItem("btc-grid-backtest:live-connection-draft:v1", JSON.stringify(liveDraft));
       sessionStorage.setItem("btc-grid-backtest:live-connection-credentials-persist-enabled:v1", "1");
@@ -934,26 +1223,48 @@ async function seedStorage(page) {
       );
 
       writePlainLocal("btc-grid-backtest:live-connection-credentials-expanded:v1", false);
-      writePlainLocal("btc-grid-backtest:theme-settings:v1", {
-        preset: "teal",
-        customColor: "#14b8a6",
-        customAccentHistory: [],
-        fontPreset: "system",
-        fontSizePreset: "md",
-        backgroundPreset: "mesh"
-      });
-      writePlainLocal("btc-grid-backtest:theme-default-settings:v1", {
-        preset: "teal",
-        customColor: "#14b8a6",
-        customAccentHistory: [],
-        fontPreset: "system",
-        fontSizePreset: "md",
-        backgroundPreset: "mesh"
-      });
+      writePlainLocal("btc-grid-backtest:theme-settings:v1", themeSettings);
+      writePlainLocal("btc-grid-backtest:theme-default-settings:v1", themeSettings);
     },
     {
-      backtestRequest: demoBacktestRequest,
+      backtestRequest: backtestRequestSeed,
       optimizationConfig: demoOptimizationConfig,
+      strategyTemplates: [
+        {
+          id: "strategy-temp-template",
+          name: "最近保存",
+          request: backtestRequestSeed
+        },
+        {
+          id: "example-template",
+          name: "示例模板",
+          request: backtestRequestSeed
+        }
+      ],
+      optimizationTemplates: [
+        {
+          id: "optimization-temp-template",
+          name: "最近保存",
+          config: demoOptimizationConfig
+        },
+        {
+          id: "optimization-example-template",
+          name: "示例模板",
+          config: demoOptimizationConfig
+        }
+      ],
+      themeSettings: {
+        preset: "custom",
+        customColor: screenshotAccent,
+        backgroundPreset: screenshotBackgroundPreset,
+        customBackground: screenshotBackgroundColor,
+        fontPreset: "pingfang",
+        fontSizePreset: "medium",
+        cardRadiusPx: 14,
+        customAccentHistory: [screenshotAccent],
+        customBackgroundHistory:
+          screenshotBackgroundPreset === "custom" ? [screenshotBackgroundColor] : []
+      },
       liveDraft: {
         algo_id: LIVE_ALGO_ID,
         profiles: {
@@ -978,11 +1289,12 @@ async function seedStorage(page) {
 async function createPage(browser) {
   const context = await browser.newContext({
     viewport: { width: 1600, height: 1280 },
-    colorScheme: "dark",
+    colorScheme: screenshotColorScheme,
     deviceScaleFactor: 1
   });
   const page = await context.newPage();
-  await seedStorage(page);
+  const backtestFixture = await getBacktestFixture();
+  await seedStorage(page, backtestFixture.request);
   await installMockRoutes(page);
   await page.goto(FRONTEND_URL, { waitUntil: "domcontentloaded" });
   await page.waitForSelector("#root");
@@ -1015,13 +1327,22 @@ async function captureViewport(page, targetPath) {
   });
 }
 
+async function stabilizeCharts(page, delayMs = 900) {
+  await page.evaluate(async () => {
+    window.dispatchEvent(new Event("resize"));
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
+  await page.waitForTimeout(delayMs);
+}
+
 async function captureBacktest(browser) {
   const { context, page } = await createPage(browser);
+  await page.setViewportSize({ width: 1800, height: 1500 });
   await page.getByRole("button", { name: "开始回测" }).click();
   await page.getByText("收益率曲线").waitFor();
   await page.locator("canvas").first().waitFor();
-  await page.waitForTimeout(800);
-  await captureViewport(page, path.join(outputDir, "readme-backtest-overview.png"));
+  await stabilizeCharts(page, 1200);
+  await captureViewport(page, path.join(outputDir, `${screenshotPrefix}-backtest-overview.png`));
   await context.close();
 }
 
@@ -1033,12 +1354,12 @@ async function captureOptimization(browser) {
   await page.getByRole("button", { name: "结果" }).click();
   await page.getByText("最优参数摘要").waitFor();
   await page.waitForTimeout(800);
-  await captureViewport(page, path.join(outputDir, "readme-optimization-results.png"));
+  await captureViewport(page, path.join(outputDir, `${screenshotPrefix}-optimization-results.png`));
 
   await page.getByRole("button", { name: "热力图" }).click();
   await page.getByText("热力图 (杠杆 × 网格数)").waitFor();
   await page.waitForTimeout(800);
-  await captureViewport(page, path.join(outputDir, "readme-optimization-heatmap.png"));
+  await captureViewport(page, path.join(outputDir, `${screenshotPrefix}-optimization-heatmap.png`));
   await context.close();
 }
 
@@ -1048,7 +1369,7 @@ async function captureLive(browser) {
   await page.getByText("监测总览").waitFor({ timeout: 15000 });
   await page.getByText("收益和趋势").waitFor();
   await page.waitForTimeout(1000);
-  await captureViewport(page, path.join(outputDir, "readme-live-monitoring.png"));
+  await captureViewport(page, path.join(outputDir, `${screenshotPrefix}-live-monitoring.png`));
   await context.close();
 }
 

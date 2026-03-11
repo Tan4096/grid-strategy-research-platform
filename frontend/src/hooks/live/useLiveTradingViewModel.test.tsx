@@ -208,16 +208,19 @@ describe("useLiveTradingViewModel", () => {
     );
 
     expect(hook.value.presetCounts).toEqual({
+      trading: 2,
       all: 3,
       trades: 1,
       fees: 1,
       funding: 1
     });
 
+    expect(hook.value.filteredEntries.map((item) => item.kind)).toEqual(["trade", "fee"]);
+
     act(() => {
       hook.value.setTimeFilter("24h");
     });
-    expect(hook.value.filteredEntries).toHaveLength(2);
+    expect(hook.value.filteredEntries).toHaveLength(1);
 
     act(() => {
       hook.value.setLedgerPreset("funding");
@@ -255,4 +258,50 @@ describe("useLiveTradingViewModel", () => {
 
     hook.unmount();
   });
+
+  it("computes drawdown from peak equity instead of return-point gap", () => {
+    const hook = renderHook(() =>
+      useLiveTradingViewModel({
+        request,
+        snapshot: {
+          ...snapshot,
+          account: {
+            ...snapshot.account,
+            fetched_at: "2026-03-03T00:00:00+08:00"
+          },
+          window: {
+            ...snapshot.window,
+            fetched_at: "2026-03-03T00:00:00+08:00"
+          },
+          robot: {
+            ...snapshot.robot,
+            investment_usdt: 1000,
+            total_pnl: 150,
+            pnl_ratio: 0.15
+          },
+          summary: {
+            ...snapshot.summary,
+            total_pnl: 150
+          },
+          ledger_summary: {
+            ...snapshot.ledger_summary,
+            total_pnl: 150
+          },
+          pnl_curve: [
+            { timestamp: "2026-03-01T00:00:00+08:00", value: 0 },
+            { timestamp: "2026-03-02T00:00:00+08:00", value: 300 },
+            { timestamp: "2026-03-03T00:00:00+08:00", value: 150 }
+          ]
+        },
+        autoRefreshPaused: false,
+        trend
+      })
+    );
+
+    expect(hook.value.pnlCurveDrawdownChartData[2]?.value).toBeCloseTo(-11.5385, 3);
+    expect(hook.value.pnlCurveMaxDrawdown).toBeCloseTo(-11.5385, 3);
+
+    hook.unmount();
+  });
+
 });

@@ -37,6 +37,7 @@ def fetch_live_snapshot_aggregate(
     diag,
     sanitize_error_message,
     pick_positive_value,
+    fetch_strategy_start_price_best_effort: Callable,
 ) -> LiveSnapshotResponse:
     cached = cache_get_fresh(cache_snapshot_store, cache_key, snapshot_cache_ttl_sec)
     if cached is not None:
@@ -67,6 +68,10 @@ def fetch_live_snapshot_aggregate(
             open_orders=exchange_snapshot.open_orders,
             fills=exchange_snapshot.fills,
             funding_entries=exchange_snapshot.funding_entries,
+        )
+        strategy_start_price = fetch_strategy_start_price_best_effort(
+            symbol=exchange_snapshot.exchange_symbol or payload.symbol,
+            strategy_started_at=exchange_snapshot.robot.created_at if exchange_snapshot.robot is not None and exchange_snapshot.robot.created_at is not None else effective_strategy_started_at,
         )
         ledger_entries = exchange_snapshot.ledger_entries or build_ledger_entries(exchange_snapshot.fills, exchange_snapshot.funding_entries)
         daily_breakdown = build_daily_breakdown(ledger_entries)
@@ -145,18 +150,7 @@ def fetch_live_snapshot_aggregate(
                 )
         diagnostics = normalize_diagnostics(diagnostics)
         completeness = build_completeness(diagnostics)
-        response = LiveSnapshotResponse(
-            account=LiveAccountInfo(
-                exchange=payload.exchange,
-                symbol=exchange_snapshot.symbol or payload.symbol,
-                exchange_symbol=exchange_snapshot.exchange_symbol,
-                algo_id=payload.algo_id or "",
-                strategy_started_at=normalize_datetime(effective_strategy_started_at),
-                fetched_at=fetched_at,
-                masked_api_key=mask_api_key(payload.credentials.api_key),
-            ),
-            robot=exchange_snapshot.robot
-            or LiveRobotOverview(
+        robot_overview = exchange_snapshot.robot.model_copy(update={"strategy_start_price": strategy_start_price}) if exchange_snapshot.robot is not None else LiveRobotOverview(
                 algo_id=payload.algo_id or "",
                 name=f"{exchange_snapshot.exchange_symbol} · {(payload.algo_id or '')[-6:]}",
                 direction=exchange_snapshot.position.side,
@@ -167,7 +161,19 @@ def fetch_live_snapshot_aggregate(
                 grid_spacing=inferred_grid.grid_spacing,
                 total_pnl=summary.total_pnl,
                 use_base_position=inferred_grid.use_base_position,
+                strategy_start_price=strategy_start_price,
+            )
+        response = LiveSnapshotResponse(
+            account=LiveAccountInfo(
+                exchange=payload.exchange,
+                symbol=exchange_snapshot.symbol or payload.symbol,
+                exchange_symbol=exchange_snapshot.exchange_symbol,
+                algo_id=payload.algo_id or "",
+                strategy_started_at=normalize_datetime(effective_strategy_started_at),
+                fetched_at=fetched_at,
+                masked_api_key=mask_api_key(payload.credentials.api_key),
             ),
+            robot=robot_overview,
             monitoring=build_monitoring_info(
                 poll_interval_sec=payload.monitoring_poll_interval_sec,
                 last_success_at=fetched_at,

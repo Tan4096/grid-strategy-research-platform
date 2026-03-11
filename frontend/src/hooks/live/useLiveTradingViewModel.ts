@@ -48,6 +48,7 @@ export interface LiveTradingViewModel {
   riskMeta: ReturnType<typeof riskLevelMeta> | null;
   integrityMeta: ReturnType<typeof integrityLevelMeta> | null;
   dataStatus: ReturnType<typeof dataStatusMeta> | null;
+  trend: LiveMonitoringTrendPoint[];
   pnlCurve: ReturnType<typeof buildLivePnlCurve> | null;
   pnlCurveDelta: number | null;
   pnlCurveDisplayStart: string | null;
@@ -89,8 +90,8 @@ export function useLiveTradingViewModel({
   autoRefreshPaused,
   trend
 }: Params): LiveTradingViewModel {
-  const [ledgerView, setLedgerView] = useState<LedgerView>("summary");
-  const [ledgerPreset, setLedgerPreset] = useState<LedgerPreset>("all");
+  const [ledgerView, setLedgerView] = useState<LedgerView>("ledger");
+  const [ledgerPreset, setLedgerPreset] = useState<LedgerPreset>("trading");
   const [kindFilter, setKindFilter] = useState<LedgerKindFilter>("all");
   const [sideFilter, setSideFilter] = useState<LedgerSideFilter>("all");
   const [makerFilter, setMakerFilter] = useState<LedgerMakerFilter>("all");
@@ -228,6 +229,30 @@ export function useLiveTradingViewModel({
     [pnlCurve?.points, pnlCurveChartUsesReturnRate, pnlCurvePctScale]
   );
   const pnlCurveDrawdownChartData = useMemo(() => {
+    if (!pnlCurve || (pnlCurve?.points ?? []).length === 0) {
+      return [];
+    }
+
+    const investmentUsdt = robot?.investment_usdt;
+
+    if (
+      pnlCurveChartUsesReturnRate &&
+      investmentUsdt &&
+      Number.isFinite(investmentUsdt) &&
+      investmentUsdt > 0
+    ) {
+      let runningPeakEquity = investmentUsdt;
+      return (pnlCurve.points ?? []).map((point) => {
+        const equity = investmentUsdt + point.value;
+        runningPeakEquity = Math.max(runningPeakEquity, equity);
+        const drawdownPct = runningPeakEquity > 0 ? (equity / runningPeakEquity - 1) * 100 : 0;
+        return {
+          timestamp: point.timestamp,
+          value: drawdownPct < -1e-9 ? drawdownPct : 0
+        };
+      });
+    }
+
     let runningPeak = Number.NEGATIVE_INFINITY;
     return pnlCurveChartData.map((point) => {
       runningPeak = Math.max(runningPeak, point.value);
@@ -236,7 +261,7 @@ export function useLiveTradingViewModel({
         value: runningPeak - point.value > 1e-9 ? point.value - runningPeak : 0
       };
     });
-  }, [pnlCurveChartData]);
+  }, [pnlCurve, pnlCurveChartData, pnlCurveChartUsesReturnRate, robot?.investment_usdt]);
   const pnlCurveDrawdown =
     pnlCurveDrawdownChartData.length > 0 ? pnlCurveDrawdownChartData[pnlCurveDrawdownChartData.length - 1]?.value ?? null : null;
   const pnlCurveMaxDrawdown =
@@ -256,6 +281,9 @@ export function useLiveTradingViewModel({
     }
     const now = Date.parse(windowInfo.fetched_at);
     return ledgerEntries.filter((entry) => {
+      if (ledgerPreset === "trading" && entry.kind === "funding") {
+        return false;
+      }
       if (ledgerPreset === "trades" && entry.kind !== "trade") {
         return false;
       }
@@ -319,6 +347,7 @@ export function useLiveTradingViewModel({
 
   const presetCounts = useMemo(
     () => ({
+      trading: ledgerEntries.filter((entry) => entry.kind === "trade" || entry.kind === "fee").length,
       all: ledgerEntries.length,
       trades: ledgerEntries.filter((entry) => entry.kind === "trade").length,
       fees: ledgerEntries.filter((entry) => entry.kind === "fee").length,
@@ -349,6 +378,7 @@ export function useLiveTradingViewModel({
     riskMeta,
     integrityMeta,
     dataStatus,
+    trend,
     pnlCurve,
     pnlCurveDelta,
     pnlCurveDisplayStart,

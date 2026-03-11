@@ -31,6 +31,7 @@ vi.stubGlobal(
         lower_price: 68000,
         upper_price: 72000,
         grid_spacing: 500,
+        single_amount: "1.08",
         grid_profit: 1,
         floating_profit: 2,
         total_fee: 0.5,
@@ -40,6 +41,21 @@ vi.stubGlobal(
         stop_loss_price: 66000,
         take_profit_price: 73000,
         use_base_position: true
+      },
+      market_params: {
+        source: "okx",
+        symbol: "BTCUSDT",
+        maker_fee_rate: 0.0002,
+        taker_fee_rate: 0.0005,
+        funding_rate_per_8h: 0.0001,
+        funding_interval_hours: 8,
+        price_tick_size: 0.1,
+        quantity_step_size: 0.0001,
+        contract_size_base: "0.01",
+        min_notional: 7,
+        reference_price: 70000,
+        fetched_at: "2026-03-07T10:56:35.773+08:00",
+        note: null
       },
       summary: {
         realized_pnl: 1,
@@ -105,6 +121,8 @@ describe("fetchLiveSnapshot", () => {
     expect(result.account.algo_id).toBe("123456");
     expect(result.robot.name).toBe("BTC Grid");
     expect(result.robot.actual_leverage).toBe(4.8);
+    expect(result.robot.single_amount).toBe(1.08);
+    expect(result.market_params?.contract_size_base).toBe(0.01);
     expect(result.completeness.fills_complete).toBe(true);
     expect(result.ledger_summary.total_pnl).toBe(2.7);
     expect(result.daily_breakdown).toEqual([]);

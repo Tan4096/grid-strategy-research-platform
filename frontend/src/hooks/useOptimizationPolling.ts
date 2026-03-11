@@ -224,7 +224,7 @@ export function useOptimizationPolling({
 
       if ("Notification" in window && document.visibilityState !== "visible") {
         if (Notification.permission === "granted") {
-          new Notification("Crypto网格策略回测工具", { body: text });
+          new Notification("Grid Strategy Research Platform", { body: text });
         } else if (Notification.permission === "default") {
           void Notification.requestPermission();
         }

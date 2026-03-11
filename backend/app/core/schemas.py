@@ -269,6 +269,7 @@ class MarketParamsResponse(BaseModel):
     funding_interval_hours: int
     price_tick_size: float
     quantity_step_size: float
+    contract_size_base: Optional[float] = None
     min_notional: float
     reference_price: Optional[float] = None
     fetched_at: datetime
@@ -306,6 +307,7 @@ class LiveRobotListItem(BaseModel):
     run_type: Optional[str] = None
     configured_leverage: Optional[float] = None
     investment_usdt: Optional[float] = None
+    strategy_start_price: Optional[float] = None
     lower_price: Optional[float] = None
     upper_price: Optional[float] = None
     grid_count: Optional[int] = None
@@ -373,6 +375,7 @@ class LiveRobotOverview(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     investment_usdt: Optional[float] = None
+    strategy_start_price: Optional[float] = None
     configured_leverage: Optional[float] = None
     actual_leverage: Optional[float] = None
     liquidation_price: Optional[float] = None
@@ -380,6 +383,7 @@ class LiveRobotOverview(BaseModel):
     lower_price: Optional[float] = None
     upper_price: Optional[float] = None
     grid_spacing: Optional[float] = None
+    single_amount: Optional[float] = None
     grid_profit: Optional[float] = None
     floating_profit: Optional[float] = None
     total_fee: Optional[float] = None
@@ -426,6 +430,7 @@ class LiveFill(BaseModel):
     fee: float = 0.0
     fee_currency: Optional[str] = None
     is_maker: Optional[bool] = None
+    placed_at: Optional[datetime] = None
     timestamp: datetime
 
 

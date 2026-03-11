@@ -1,7 +1,8 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { LiveMonitoringTrendPoint } from "../types";
 import type { BacktestRequest, BacktestResponse, LiveSnapshotResponse } from "../lib/api-schema";
 import { useLiveTradingViewModel } from "../hooks/live/useLiveTradingViewModel";
+import { useLiveMiniBacktest } from "../hooks/live/useLiveMiniBacktest";
 import LiveLedgerSection from "./live-trading/LiveLedgerSection";
 import LiveOverviewSection from "./live-trading/LiveOverviewSection";
 import LivePnlTrendSection from "./live-trading/LivePnlTrendSection";
@@ -49,12 +50,14 @@ export default function LiveTradingPanel({
   onStopMonitoring: _onStopMonitoring,
   connectionPanelNode
 }: Props) {
+  const [miniBacktestWindowDays, setMiniBacktestWindowDays] = useState<7 | 30>(30);
   const viewModel = useLiveTradingViewModel({
     request,
     snapshot,
     autoRefreshPaused,
     trend
   });
+  const miniBacktest = useLiveMiniBacktest({ request, snapshot, windowDays: miniBacktestWindowDays });
 
   if (!snapshot && loading) {
     return (
@@ -100,7 +103,13 @@ export default function LiveTradingPanel({
         monitoringActive={monitoringActive}
         onApplyParameters={onApplyParameters}
       />
-      <LiveRiskConfigSection viewModel={viewModel} />
+      <LiveRiskConfigSection
+        viewModel={viewModel}
+        backtestResult={miniBacktest.result}
+        miniBacktestLoading={miniBacktest.loading}
+        miniBacktestWindowDays={miniBacktestWindowDays}
+        onMiniBacktestWindowDaysChange={setMiniBacktestWindowDays}
+      />
       <LivePnlTrendSection viewModel={viewModel} />
       <LiveLedgerSection
         viewModel={viewModel}
