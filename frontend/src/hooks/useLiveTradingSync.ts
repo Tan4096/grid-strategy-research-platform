@@ -54,7 +54,8 @@ function normalizeTrendPoint(raw: unknown): LiveMonitoringTrendPoint | null {
     total_pnl: typeof candidate.total_pnl === "number" ? candidate.total_pnl : 0,
     floating_profit: typeof candidate.floating_profit === "number" ? candidate.floating_profit : 0,
     funding_fee: typeof candidate.funding_fee === "number" ? candidate.funding_fee : 0,
-    notional: typeof candidate.notional === "number" ? candidate.notional : 0
+    notional: typeof candidate.notional === "number" ? candidate.notional : 0,
+    mark_price: typeof candidate.mark_price === "number" && Number.isFinite(candidate.mark_price) ? candidate.mark_price : undefined
   };
 }
 
@@ -149,7 +150,12 @@ function buildTrendPoint(snapshot: LiveSnapshotResponse): LiveMonitoringTrendPoi
     total_pnl: snapshot.robot.total_pnl ?? snapshot.summary.total_pnl,
     floating_profit: snapshot.robot.floating_profit ?? snapshot.summary.unrealized_pnl,
     funding_fee: snapshot.robot.funding_fee ?? snapshot.summary.funding_net,
-    notional: snapshot.position.notional || snapshot.summary.position_notional
+    notional: snapshot.position.notional || snapshot.summary.position_notional,
+    mark_price:
+      snapshot.market_params?.reference_price ??
+      (Number.isFinite(snapshot.position.mark_price) && snapshot.position.mark_price > 0
+        ? snapshot.position.mark_price
+        : snapshot.position.entry_price)
   };
 }
 

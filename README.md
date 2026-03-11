@@ -36,23 +36,29 @@ The project keeps the current public API stable and focuses on practical local o
 - Position, open orders, fills, funding, inferred grid, diagnostics, and trend visualization
 - Safer browser behavior: credentials should only persist when the user explicitly opts in
 
-## Screenshots / 界面预览
+## Demo / 功能演示
 
-All screenshots below are generated from masked demo data for public documentation.  
-以下截图均基于脱敏演示数据生成，仅用于公开仓库展示。
+This repository currently provides screenshot-based previews only and does **not** ship a public hosted demo.  
+当前公开仓库仅提供截图形式的功能预览，**不提供**公网在线 Demo。
+
+All screenshots below are generated from masked demo data for public documentation and use the checked-in `docs/assets/readme-*.png` assets.  
+以下截图均基于脱敏演示数据生成，并直接使用仓库中的 `docs/assets/readme-*.png` 资源，仅用于公开仓库展示。
 
 To regenerate the gallery assets locally:
 `cd frontend && npm run capture:readme-screenshots`
 
-| 参数配置 + 回测总览 | 参数优化结果 |
+| 回测总览 | 参数优化结果 |
 | --- | --- |
 | ![Backtest overview](docs/assets/readme-backtest-overview.png) | ![Optimization results](docs/assets/readme-optimization-results.png) |
-| 左侧参数区与右侧回测结果同屏展示，适合快速验证区间、风险和收益曲线。 | 结果表格、最佳组合摘要与核心指标同屏，适合筛选可继续验证的参数组。 |
+| 左侧参数区与右侧回测结果同屏展示，可快速预览区间配置、收益指标与风险曲线。 | 排名结果、最优参数摘要与关键指标同屏展示，便于预览优化输出结构。 |
 
 | 热力图分析 | 实盘监测面板 |
 | --- | --- |
 | ![Optimization heatmap](docs/assets/readme-optimization-heatmap.png) | ![Live monitoring overview](docs/assets/readme-live-monitoring.png) |
-| 通过杠杆 × 网格数热力图快速观察稳健评分分布，定位可重点复核的参数区域。 | 用演示数据展示监测总览、风险配置、收益趋势和账单拆解，不包含真实账户信息。 |
+| 通过杠杆 × 网格数热力图预览参数区域分布，便于快速识别值得复核的区间。 | 以演示数据预览监测总览、风险配置、收益趋势与账单拆解视图，不包含真实账户信息。 |
+
+If GIF previews are added later, the first replacement candidates will be the backtest overview and optimization results panels.  
+如果后续补充 GIF 预览，优先替换“回测总览”或“参数优化结果”中的静态图片。
 
 ## Architecture / 架构概览
 

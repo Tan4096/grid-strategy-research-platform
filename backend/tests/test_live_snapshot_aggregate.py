@@ -149,6 +149,7 @@ def test_fetch_live_snapshot_aggregate_returns_stale_cached_snapshot_on_failure(
         diag=lambda level, code, message: type("Diag", (), {"level": level, "code": code, "message": message})(),
         sanitize_error_message=str,
         pick_positive_value=lambda *values: 0.0,
+        fetch_strategy_start_price_best_effort=lambda **kwargs: None,
     )
 
     assert stale.monitoring.stale is True

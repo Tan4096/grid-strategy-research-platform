@@ -1,9 +1,17 @@
 import { act } from "react";
 import type { ReactNode } from "react";
 import { createRoot, Root } from "react-dom/client";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { BacktestRequest, LiveSnapshotResponse } from "../lib/api-schema";
 import LiveTradingPanel from "./LiveTradingPanel";
+
+vi.mock("../hooks/live/useLiveMiniBacktest", () => ({
+  useLiveMiniBacktest: () => ({
+    result: null,
+    loading: false,
+    error: null
+  })
+}));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -191,7 +199,32 @@ describe("LiveTradingPanel", () => {
         autoRefreshPaused={false}
         autoRefreshPausedReason={null}
         nextRefreshAt={Date.now() + 15_000}
-        trend={[]}
+        trend={[
+          {
+            timestamp: "2026-03-07T10:30:00+08:00",
+            total_pnl: 1.8,
+            floating_profit: -0.2,
+            funding_fee: 0.2,
+            notional: 1000,
+            mark_price: 69980
+          },
+          {
+            timestamp: "2026-03-07T10:40:00+08:00",
+            total_pnl: 2.2,
+            floating_profit: -0.4,
+            funding_fee: 0.2,
+            notional: 1000,
+            mark_price: 70320
+          },
+          {
+            timestamp: "2026-03-07T10:50:00+08:00",
+            total_pnl: 2.5,
+            floating_profit: -0.6,
+            funding_fee: 0.2,
+            notional: 1000,
+            mark_price: 70120
+          }
+        ]}
         onRefresh={() => undefined}
         onApplyParameters={() => undefined}
         onApplyEnvironment={() => undefined}
@@ -205,24 +238,26 @@ describe("LiveTradingPanel", () => {
     const text = mounted.container.textContent ?? "";
     expect(text.indexOf("监测总览")).toBeGreaterThanOrEqual(0);
     expect(text.indexOf("风险与配置")).toBeGreaterThan(text.indexOf("监测总览"));
-    expect(text.indexOf("实盘曲线")).toBeGreaterThan(text.indexOf("风险与配置"));
+    expect(text.indexOf("收益和趋势")).toBeGreaterThan(text.indexOf("风险与配置"));
     expect(text).toContain("运行中");
     expect(text).toContain("做空");
     expect(text).toContain("总收益");
     expect(text).toContain(" · 最大 ");
     expect(text).toContain("距止损距离");
-    expect(text).toContain("运行状态");
+    expect(text).toContain("持仓网格数");
+    expect(text).toContain("自动刷新运行中");
     expect(text).toContain("当前价 70100.00 · 止损价 66000.00");
+    expect(text.indexOf("持仓网格数")).toBeLessThan(text.indexOf("距止损距离"));
+    expect(text.indexOf("距止损距离")).toBeLessThan(text.indexOf("总收益"));
     expect(text.indexOf("总收益")).toBeLessThan(text.indexOf("最大回撤"));
-    expect(text.indexOf("最大回撤")).toBeLessThan(text.indexOf("距止损距离"));
-    expect(text.indexOf("距止损距离")).toBeLessThan(text.indexOf("运行状态"));
     expect(text).toContain("当前价格");
     expect(text).toContain("收益率曲线");
     expect(text).toContain("回撤曲线");
+    expect(text).toContain("实盘曲线");
     expect(text).toContain("回撤 ");
     expect(text).toContain(" · 最大 ");
     expect(text).toContain("区间");
-    expect(text).toContain("曲线起点");
+    expect(text).toContain("起点 ");
     expect(text).toContain("回填到左侧参数");
     expect(text).not.toContain("监测详情");
     expect(text).not.toContain("回测对比");
@@ -263,7 +298,345 @@ describe("LiveTradingPanel", () => {
     const riskCard = riskTitle?.closest("section");
     const riskHtml = riskCard?.innerHTML ?? "";
     expect(riskHtml).toContain("border-emerald-400/35");
-    expect(riskHtml).not.toContain("border-amber-400/35");
+
+    mounted.unmount();
+  });
+
+  it("converts single grid order amount from contracts into base-asset quantity", () => {
+    const mounted = mount(
+      <LiveTradingPanel
+        request={request}
+        backtestResult={null}
+        snapshot={{
+          ...snapshot,
+          robot: {
+            ...snapshot.robot,
+            single_amount: 1.08
+          },
+          market_params: {
+            source: "okx",
+            symbol: "BTCUSDT",
+            maker_fee_rate: 0.0002,
+            taker_fee_rate: 0.0005,
+            funding_rate_per_8h: 0.0001,
+            funding_interval_hours: 8,
+            price_tick_size: 0.1,
+            quantity_step_size: 0.0001,
+            contract_size_base: 0.01,
+            min_notional: 7,
+            fetched_at: "2026-03-07T10:56:35.773+08:00",
+            note: null
+          }
+        }}
+        loading={false}
+        error={null}
+        monitoringActive
+        autoRefreshPaused={false}
+        autoRefreshPausedReason={null}
+        nextRefreshAt={Date.now() + 15_000}
+        trend={[]}
+        onRefresh={() => undefined}
+        onApplyParameters={() => undefined}
+        onApplyEnvironment={() => undefined}
+        onApplyInferredGrid={() => undefined}
+        onRunBacktest={() => undefined}
+        onApplySuggestedWindow={() => undefined}
+        onStopMonitoring={() => undefined}
+      />
+    );
+
+    const text = mounted.container.textContent ?? "";
+    expect(text).toContain("单格下单量（BTC）");
+    expect(text).toContain("0.0108");
+
+    mounted.unmount();
+  });
+
+  it("shows held grid count from live position divided by single-grid amount", () => {
+    const mounted = mount(
+      <LiveTradingPanel
+        request={request}
+        backtestResult={null}
+        snapshot={{
+          ...snapshot,
+          robot: {
+            ...snapshot.robot,
+            single_amount: 1.08
+          },
+          position: {
+            ...snapshot.position,
+            quantity: 0.0216
+          },
+          market_params: {
+            source: "okx",
+            symbol: "BTCUSDT",
+            maker_fee_rate: 0.0002,
+            taker_fee_rate: 0.0005,
+            funding_rate_per_8h: 0.0001,
+            funding_interval_hours: 8,
+            price_tick_size: 0.1,
+            quantity_step_size: 0.0001,
+            contract_size_base: 0.01,
+            min_notional: 7,
+            fetched_at: "2026-03-07T10:56:35.773+08:00",
+            note: null
+          }
+        }}
+        loading={false}
+        error={null}
+        monitoringActive
+        autoRefreshPaused={false}
+        autoRefreshPausedReason={null}
+        nextRefreshAt={Date.now() + 15_000}
+        trend={[]}
+        onRefresh={() => undefined}
+        onApplyParameters={() => undefined}
+        onApplyEnvironment={() => undefined}
+        onApplyInferredGrid={() => undefined}
+        onRunBacktest={() => undefined}
+        onApplySuggestedWindow={() => undefined}
+        onStopMonitoring={() => undefined}
+      />
+    );
+
+    const text = mounted.container.textContent ?? "";
+    expect(text).toContain("持仓网格数");
+    expect(text).toContain("2 格");
+    expect(text).toContain("当前持仓 2 格 · 单格 0.0108 BTC");
+
+    mounted.unmount();
+  });
+
+  it("prefers integer open-grid count identified from fills", () => {
+    const mounted = mount(
+      <LiveTradingPanel
+        request={request}
+        backtestResult={null}
+        snapshot={{
+          ...snapshot,
+          robot: {
+            ...snapshot.robot,
+            single_amount: 1.08
+          },
+          position: {
+            ...snapshot.position,
+            quantity: 0.0108
+          },
+          market_params: {
+            source: "okx",
+            symbol: "BTCUSDT",
+            maker_fee_rate: 0.0002,
+            taker_fee_rate: 0.0005,
+            funding_rate_per_8h: 0.0001,
+            funding_interval_hours: 8,
+            price_tick_size: 0.1,
+            quantity_step_size: 0.0001,
+            contract_size_base: 0.01,
+            min_notional: 7,
+            fetched_at: "2026-03-07T10:56:35.773+08:00",
+            note: null
+          },
+          completeness: {
+            ...snapshot.completeness,
+            fills_complete: true
+          },
+          fills: [
+            {
+              trade_id: "open-1",
+              order_id: "order-open-1",
+              side: "sell",
+              price: 70500,
+              quantity: 0.0108,
+              realized_pnl: 0,
+              fee: 0.1,
+              fee_currency: "USDT",
+              is_maker: true,
+              timestamp: "2026-03-07T10:02:00+08:00"
+            }
+          ]
+        }}
+        loading={false}
+        error={null}
+        monitoringActive
+        autoRefreshPaused={false}
+        autoRefreshPausedReason={null}
+        nextRefreshAt={Date.now() + 15_000}
+        trend={[]}
+        onRefresh={() => undefined}
+        onApplyParameters={() => undefined}
+        onApplyEnvironment={() => undefined}
+        onApplyInferredGrid={() => undefined}
+        onRunBacktest={() => undefined}
+        onApplySuggestedWindow={() => undefined}
+        onStopMonitoring={() => undefined}
+      />
+    );
+
+    const text = mounted.container.textContent ?? "";
+    expect(text).toContain("持仓网格数");
+    expect(text).toContain("1 格");
+    expect(text).toContain("当前持仓 1 格 · 单格 0.0108 BTC");
+
+    mounted.unmount();
+  });
+
+  it("uses take-profit order count as held grid count for short grids", () => {
+    const mounted = mount(
+      <LiveTradingPanel
+        request={request}
+        backtestResult={null}
+        snapshot={{
+          ...snapshot,
+          robot: {
+            ...snapshot.robot,
+            direction: "short",
+            single_amount: 1.08,
+            grid_count: 9
+          },
+          position: {
+            ...snapshot.position,
+            side: "short",
+            quantity: 0.101914
+          },
+          market_params: {
+            source: "okx",
+            symbol: "BTCUSDT",
+            maker_fee_rate: 0.0002,
+            taker_fee_rate: 0.0005,
+            funding_rate_per_8h: 0.0001,
+            funding_interval_hours: 8,
+            price_tick_size: 0.1,
+            quantity_step_size: 0.0001,
+            contract_size_base: 0.01,
+            min_notional: 7,
+            fetched_at: "2026-03-11T13:28:59.920+08:00",
+            note: null
+          },
+          open_orders: [
+            { order_id: "b1", side: "buy", price: 59817.7, quantity: 1.08, filled_quantity: 0, reduce_only: false, status: "live", timestamp: "2026-03-11T13:28:00+08:00" },
+            { order_id: "b2", side: "buy", price: 61186.1, quantity: 1.08, filled_quantity: 0, reduce_only: false, status: "live", timestamp: "2026-03-11T13:28:00+08:00" },
+            { order_id: "b3", side: "buy", price: 62554.5, quantity: 1.08, filled_quantity: 0, reduce_only: false, status: "live", timestamp: "2026-03-11T13:28:00+08:00" },
+            { order_id: "b4", side: "buy", price: 63922.8, quantity: 1.08, filled_quantity: 0, reduce_only: false, status: "live", timestamp: "2026-03-11T13:28:00+08:00" },
+            { order_id: "b5", side: "buy", price: 65291.2, quantity: 1.08, filled_quantity: 0, reduce_only: false, status: "live", timestamp: "2026-03-11T13:28:00+08:00" },
+            { order_id: "b6", side: "buy", price: 66659.6, quantity: 1.08, filled_quantity: 0, reduce_only: false, status: "live", timestamp: "2026-03-11T13:28:00+08:00" },
+            { order_id: "b7", side: "buy", price: 68028.0, quantity: 1.08, filled_quantity: 0, reduce_only: false, status: "live", timestamp: "2026-03-11T13:28:00+08:00" },
+            { order_id: "s1", side: "sell", price: 71084.5, quantity: 1.08, filled_quantity: 0, reduce_only: false, status: "live", timestamp: "2026-03-11T13:28:00+08:00" },
+            { order_id: "s2", side: "sell", price: 72133.1, quantity: 1.08, filled_quantity: 0, reduce_only: false, status: "live", timestamp: "2026-03-11T13:28:00+08:00" }
+          ],
+          fills: []
+        }}
+        loading={false}
+        error={null}
+        monitoringActive
+        autoRefreshPaused={false}
+        autoRefreshPausedReason={null}
+        nextRefreshAt={Date.now() + 15_000}
+        trend={[]}
+        onRefresh={() => undefined}
+        onApplyParameters={() => undefined}
+        onApplyEnvironment={() => undefined}
+        onApplyInferredGrid={() => undefined}
+        onRunBacktest={() => undefined}
+        onApplySuggestedWindow={() => undefined}
+        onStopMonitoring={() => undefined}
+      />
+    );
+
+    const text = mounted.container.textContent ?? "";
+    expect(text).toContain("持仓网格数");
+    expect(text).toContain("7 格");
+    expect(text).toContain("当前持仓 7 格 · 单格 0.0108 BTC");
+
+    mounted.unmount();
+  });
+
+  it("splits active order levels into buy and sell ladders", () => {
+    const mounted = mount(
+      <LiveTradingPanel
+        request={request}
+        backtestResult={null}
+        snapshot={{
+          ...snapshot,
+          summary: {
+            ...snapshot.summary,
+            open_order_count: 4
+          },
+          open_orders: [
+            {
+              order_id: "sell-1",
+              side: "sell",
+              price: 71200,
+              quantity: 0.01,
+              filled_quantity: 0,
+              reduce_only: false,
+              status: "live",
+              timestamp: "2026-03-07T10:55:00+08:00"
+            },
+            {
+              order_id: "sell-2",
+              side: "sell",
+              price: 70600,
+              quantity: 0.01,
+              filled_quantity: 0,
+              reduce_only: false,
+              status: "live",
+              timestamp: "2026-03-07T10:55:10+08:00"
+            },
+            {
+              order_id: "buy-1",
+              side: "buy",
+              price: 69400,
+              quantity: 0.01,
+              filled_quantity: 0,
+              reduce_only: true,
+              status: "live",
+              timestamp: "2026-03-07T10:55:20+08:00"
+            },
+            {
+              order_id: "buy-2",
+              side: "buy",
+              price: 68800,
+              quantity: 0.01,
+              filled_quantity: 0,
+              reduce_only: true,
+              status: "live",
+              timestamp: "2026-03-07T10:55:30+08:00"
+            }
+          ],
+          inferred_grid: {
+            ...snapshot.inferred_grid,
+            active_level_count: 4,
+            active_levels: [68800, 69400, 70600, 71200]
+          }
+        }}
+        loading={false}
+        error={null}
+        monitoringActive
+        autoRefreshPaused={false}
+        autoRefreshPausedReason={null}
+        nextRefreshAt={Date.now() + 15_000}
+        trend={[]}
+        onRefresh={() => undefined}
+        onApplyParameters={() => undefined}
+        onApplyEnvironment={() => undefined}
+        onApplyInferredGrid={() => undefined}
+        onRunBacktest={() => undefined}
+        onApplySuggestedWindow={() => undefined}
+        onStopMonitoring={() => undefined}
+      />
+    );
+
+    const text = mounted.container.textContent ?? "";
+    expect(text).toContain("当前挂单结构");
+    expect(text).toContain("买单 2 层");
+    expect(text).toContain("卖单 2 层");
+    expect(text).toContain("悬浮可查看时间与 OHLC");
+    expect(text).toContain("买单层2 层");
+    expect(text).toContain("卖单层2 层");
+    expect(text).not.toContain("回补 / 止盈");
+
+    const chart = mounted.container.querySelector('[data-testid="live-order-mini-chart"]');
+    expect(chart).not.toBeNull();
 
     mounted.unmount();
   });
@@ -334,7 +707,7 @@ describe("LiveTradingPanel", () => {
     mounted.unmount();
   });
 
-  it("shows fills incomplete hint and defaults ledger to summary", () => {
+  it("shows fills incomplete hint and defaults ledger to open grids", () => {
     const mounted = mount(
       <LiveTradingPanel
         request={request}
@@ -358,7 +731,8 @@ describe("LiveTradingPanel", () => {
     );
 
     const text = mounted.container.textContent ?? "";
-    expect(text).toContain("总净额");
+    expect(text).toContain("未平仓网格");
+    expect(text).toContain("当前数量可能偏保守");
     expect(text).not.toContain("当前没有按日汇总账单。");
 
     mounted.unmount();
@@ -397,8 +771,8 @@ describe("LiveTradingPanel", () => {
     expect(text).not.toContain("数据同步异常");
     expect(text).not.toContain("重试");
     expect(text).toContain("API 限频");
-    expect(text).not.toContain("当前显示最近一次成功数据");
-    expect(text).not.toContain("自动刷新");
+    expect(text).toContain("当前显示最近一次成功数据");
+    expect(text).not.toContain("自动刷新运行中");
     expect(text).not.toContain("下次轮询");
 
     mounted.unmount();

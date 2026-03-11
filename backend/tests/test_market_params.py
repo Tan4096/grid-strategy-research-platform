@@ -95,6 +95,7 @@ def test_fetch_market_params_okx_converts_min_notional_to_quote_ccy(monkeypatch)
     assert result.source == DataSource.OKX
     assert result.symbol == "BTCUSDT"
     assert result.price_tick_size == 0.1
+    assert result.contract_size_base == 0.01
     # quantity_step_size should be converted from contract step to base-asset step:
     # lotSz * ctVal = 0.01 * 0.01 BTC = 0.0001 BTC
     assert result.quantity_step_size == 0.0001

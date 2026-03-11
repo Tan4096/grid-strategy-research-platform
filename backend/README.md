@@ -35,7 +35,7 @@ uvicorn app.main:app --reload --port 8000
 ```bash
 cd backend
 .venv/bin/python -m ruff check app/api app/core app/tasks/arq_queue.py
-.venv/bin/python -m mypy
+(cd .. && make backend-typecheck)
 .venv/bin/python -m pytest tests -q
 ```
 

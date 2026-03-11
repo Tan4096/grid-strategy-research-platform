@@ -21,7 +21,7 @@ backend-lint:
 	$(BACKEND_PYTHON) -m ruff check backend/app/api backend/app/core backend/app/tasks/arq_queue.py backend/app/services/live_snapshot*.py
 
 backend-typecheck:
-	$(BACKEND_PYTHON) -m mypy
+	$(BACKEND_PYTHON) -m mypy --config-file pyproject.toml
 
 frontend-typecheck:
 	cd $(FRONTEND_DIR) && npm run typecheck

@@ -1157,6 +1157,8 @@ export interface components {
             upper_price?: number | null;
             /** Grid Spacing */
             grid_spacing?: number | null;
+            /** Single Amount */
+            single_amount?: number | null;
             /** Grid Profit */
             grid_profit?: number | null;
             /** Floating Profit */
@@ -1284,6 +1286,8 @@ export interface components {
             price_tick_size: number;
             /** Quantity Step Size */
             quantity_step_size: number;
+            /** Contract Size Base */
+            contract_size_base?: number | null;
             /** Min Notional */
             min_notional: number;
             /** Reference Price */

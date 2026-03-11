@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from typing import Any, Optional
 import time
+from datetime import timedelta
 
-from app.core.schemas import LiveDiagnostic, LiveRobotListRequest, LiveRobotListResponse, LiveSnapshotRequest, LiveSnapshotResponse, MarketParamsResponse
+from app.core.schemas import DataConfig, DataSource, Interval, LiveDiagnostic, LiveRobotListRequest, LiveRobotListResponse, LiveSnapshotRequest, LiveSnapshotResponse, MarketParamsResponse
+from app.services.data_loader import DataLoadError, load_mark_price_candles
 from app.services.live_snapshot_cache import cache_get_any as _cache_get_any, cache_get_fresh as _cache_get_fresh, cache_set as _cache_set
 from app.services.live_snapshot_diagnostics import build_diag as _diag, normalize_diagnostics as _normalize_diagnostics, sanitize_error_message as _sanitize_error_message
 from app.services.live_snapshot_http import query_string as _query_string, request_json as _request_json
@@ -66,6 +68,30 @@ _build_okx_bot_summary = _bindings._build_okx_bot_summary
 _build_okx_bot_inferred_grid = _bindings._build_okx_bot_inferred_grid
 _build_okx_robot_overview = _bindings._build_okx_robot_overview
 
+
+
+
+def _fetch_strategy_start_price_best_effort(*, symbol: str, strategy_started_at):
+    try:
+        start_at = _normalize_datetime(strategy_started_at)
+        candles = load_mark_price_candles(
+            DataConfig(
+                source=DataSource.OKX,
+                symbol=symbol,
+                interval=Interval.M1,
+                lookback_days=1,
+                start_time=start_at - timedelta(minutes=2),
+                end_time=start_at + timedelta(minutes=2),
+            ),
+            start_utc=start_at - timedelta(minutes=2),
+            end_utc=start_at + timedelta(minutes=2),
+        )
+        if not candles:
+            return None
+        nearest = min(candles, key=lambda candle: abs((candle.timestamp - start_at).total_seconds()))
+        return float(nearest.close) if nearest.close > 0 else None
+    except (DataLoadError, ValueError):
+        return None
 
 def _fetch_market_params_best_effort(exchange, symbol: str, diagnostics: list[LiveDiagnostic]) -> Optional[MarketParamsResponse]:
     return _clients_layer.fetch_market_params_best_effort(exchange, symbol, diagnostics, to_data_source=_to_data_source, sanitize_error_message=_sanitize_error_message)
@@ -147,4 +173,4 @@ def fetch_okx_robot_list(payload: LiveRobotListRequest) -> LiveRobotListResponse
 def fetch_live_snapshot(payload: LiveSnapshotRequest) -> LiveSnapshotResponse:
     if payload.exchange != payload.exchange.OKX:
         raise LiveSnapshotError("实盘监测目前仅支持 OKX algoId。", status_code=400, code="LIVE_BOT_EXCHANGE_UNSUPPORTED", retryable=False)
-    return _aggregate_layer.fetch_live_snapshot_aggregate(payload, cache_key=_cache_key_for_snapshot(payload), cache_snapshot_store=_CACHE_SNAPSHOT, cache_get_fresh=_cache_get_fresh, cache_get_any=_cache_get_any, cache_set=_cache_set, snapshot_cache_ttl_sec=OKX_SNAPSHOT_CACHE_TTL_SEC, retry_live_action=_retry_live_action, fetch_okx_bot_snapshot=_fetch_okx_bot_snapshot, fetch_market_params_best_effort=_fetch_market_params_best_effort, infer_grid=_infer_grid, utc_now=_utc_now, floor_to_minute=_floor_to_minute, resolve_effective_strategy_started_at=_resolve_effective_strategy_started_at, build_summary=_build_summary, build_ledger_entries=_build_ledger_entries, build_daily_breakdown=_build_daily_breakdown, build_ledger_summary=_build_ledger_summary, build_completeness=_build_completeness, build_monitoring_info=_build_live_monitoring_info, normalize_datetime=_normalize_datetime, normalize_diagnostics=_normalize_diagnostics, mask_api_key=_mask_api_key, build_live_simulated_pnl_curve=_build_live_simulated_pnl_curve, build_live_pnl_curve=_build_live_pnl_curve, diag=_diag, sanitize_error_message=_sanitize_error_message, pick_positive_value=pick_positive_value)
+    return _aggregate_layer.fetch_live_snapshot_aggregate(payload, cache_key=_cache_key_for_snapshot(payload), cache_snapshot_store=_CACHE_SNAPSHOT, cache_get_fresh=_cache_get_fresh, cache_get_any=_cache_get_any, cache_set=_cache_set, snapshot_cache_ttl_sec=OKX_SNAPSHOT_CACHE_TTL_SEC, retry_live_action=_retry_live_action, fetch_okx_bot_snapshot=_fetch_okx_bot_snapshot, fetch_market_params_best_effort=_fetch_market_params_best_effort, infer_grid=_infer_grid, utc_now=_utc_now, floor_to_minute=_floor_to_minute, resolve_effective_strategy_started_at=_resolve_effective_strategy_started_at, build_summary=_build_summary, build_ledger_entries=_build_ledger_entries, build_daily_breakdown=_build_daily_breakdown, build_ledger_summary=_build_ledger_summary, build_completeness=_build_completeness, build_monitoring_info=_build_live_monitoring_info, normalize_datetime=_normalize_datetime, normalize_diagnostics=_normalize_diagnostics, mask_api_key=_mask_api_key, build_live_simulated_pnl_curve=_build_live_simulated_pnl_curve, build_live_pnl_curve=_build_live_pnl_curve, diag=_diag, sanitize_error_message=_sanitize_error_message, pick_positive_value=pick_positive_value, fetch_strategy_start_price_best_effort=_fetch_strategy_start_price_best_effort)

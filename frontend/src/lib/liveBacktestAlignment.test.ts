@@ -166,6 +166,11 @@ describe("buildLiveAlignedBacktestRequest", () => {
     expect(next.data.start_time).toBe("2026-03-02T00:00:00+08:00");
     expect(next.data.end_time).toBe("2026-03-07T02:56:00.000Z");
     expect(next.strategy.side).toBe("long");
+    expect(next.strategy.lower).toBe(68000);
+    expect(next.strategy.upper).toBe(72000);
+    expect(next.strategy.grids).toBe(8);
+    expect(next.strategy.leverage).toBe(5);
+    expect(next.strategy.stop_loss).toBe(66000);
     expect(next.strategy.use_base_position).toBe(true);
     expect(next.strategy.taker_fee_rate).toBe(0.0005);
     expect(next.strategy.min_notional).toBe(1);

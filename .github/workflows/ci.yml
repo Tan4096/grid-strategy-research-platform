@@ -56,9 +56,8 @@ jobs:
         run: python -m ruff check app/api app/core app/tasks/arq_queue.py app/services/live_snapshot*.py
 
       - name: Type-check backend
-        env:
-          PYTHONPATH: .
-        run: python -m mypy
+        working-directory: .
+        run: python -m mypy --config-file pyproject.toml
 
       - name: Run backend tests
         env:

@@ -690,6 +690,309 @@ def test_fetch_live_snapshot_backfills_okx_daily_realized_from_matched_account_b
     assert snapshot.daily_breakdown[0].trading_net == pytest.approx(4.85)
 
 
+def test_fetch_live_snapshot_uses_okx_account_bills_for_daily_breakdown_when_bot_fill_values_are_zero(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_okx_signed_get(payload, path, params=None):
+        if path == "/api/v5/tradingBot/grid/orders-algo-details":
+            return [
+                {
+                    "algoId": "algo-123",
+                    "instId": "BTC-USDT-SWAP",
+                    "minPx": "65000",
+                    "maxPx": "75000",
+                    "gridNum": "10",
+                    "direction": "long",
+                    "basePos": "0.25",
+                    "avgPx": "70000",
+                    "last": "70500",
+                    "state": "running",
+                    "investment": "1000",
+                    "totalPnl": "12.0",
+                    "pnl": "5.0",
+                    "totalFee": "0.15",
+                }
+            ]
+        if path == "/api/v5/tradingBot/grid/orders-algo-pending":
+            return []
+        if path == "/api/v5/tradingBot/grid/sub-orders-history":
+            return [
+                {
+                    "tradeId": "t-history",
+                    "ordId": "1",
+                    "side": "sell",
+                    "fillPx": "71000",
+                    "fillSz": "0.01",
+                    "fillPnl": "0.0",
+                    "fee": "0.0",
+                    "feeCcy": "USDT",
+                    "fillTime": "2026-03-07T10:02:00+08:00",
+                }
+            ]
+        if path in {"/api/v5/account/bills", "/api/v5/account/bills-archive"}:
+            if params and params.get("type") == 8:
+                return [
+                    {
+                        "billId": "bill-funding-1",
+                        "type": "8",
+                        "subType": "174",
+                        "pnl": "1.2",
+                        "ccy": "USDT",
+                        "ts": "2026-03-07T08:00:00+08:00",
+                    }
+                ]
+            return [
+                {
+                    "billId": "bill-trade-1",
+                    "type": "2",
+                    "subType": "1",
+                    "pnl": "1.5",
+                    "fee": "0",
+                    "balChg": "1.5",
+                    "ccy": "USDT",
+                    "ordId": "1",
+                    "tradeId": "bill-trade-1",
+                    "ts": "2026-03-07T10:02:00+08:00",
+                },
+                {
+                    "billId": "bill-trade-2",
+                    "type": "2",
+                    "subType": "1",
+                    "pnl": "3.5",
+                    "fee": "0",
+                    "balChg": "3.5",
+                    "ccy": "USDT",
+                    "ordId": "1",
+                    "tradeId": "bill-trade-2",
+                    "ts": "2026-03-07T10:02:00+08:00",
+                },
+                {
+                    "billId": "bill-fee-1",
+                    "type": "2",
+                    "subType": "2",
+                    "pnl": "0",
+                    "fee": "0.15",
+                    "balChg": "-0.15",
+                    "ccy": "USDT",
+                    "ordId": "1",
+                    "tradeId": "bill-fee-1",
+                    "ts": "2026-03-07T10:02:00+08:00",
+                },
+            ]
+        return []
+
+    monkeypatch.setattr("app.services.live_snapshot._okx_signed_get", fake_okx_signed_get)
+    monkeypatch.setattr("app.services.live_snapshot._fetch_market_params_best_effort", lambda *args, **kwargs: None)
+    monkeypatch.setattr("app.services.live_snapshot._build_live_simulated_pnl_curve", lambda **kwargs: [])
+    monkeypatch.setattr("app.services.live_snapshot._build_live_pnl_curve", lambda **kwargs: [])
+
+    snapshot = fetch_live_snapshot(LiveSnapshotRequest.model_validate(_payload("okx")))
+
+    assert any(item.kind == "trade" and item.pnl == 5.0 and item.order_id == "1" for item in snapshot.ledger_entries)
+    assert any(item.kind == "fee" and item.fee == 0.15 and item.order_id == "1" for item in snapshot.ledger_entries)
+    assert snapshot.daily_breakdown[0].realized_pnl == pytest.approx(5.0)
+    assert snapshot.daily_breakdown[0].fees_paid == pytest.approx(0.15)
+    assert snapshot.daily_breakdown[0].funding_net == pytest.approx(1.2)
+    assert snapshot.daily_breakdown[0].trading_net == pytest.approx(4.85)
+    assert snapshot.daily_breakdown[0].total_pnl == pytest.approx(6.05)
+
+
+def test_fetch_live_snapshot_backfills_okx_fill_values_from_unique_bill_timestamp_when_ids_do_not_match(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_okx_signed_get(payload, path, params=None):
+        if path == "/api/v5/tradingBot/grid/orders-algo-details":
+            return [
+                {
+                    "algoId": "algo-123",
+                    "instId": "BTC-USDT-SWAP",
+                    "direction": "long",
+                    "basePos": "0.25",
+                    "avgPx": "70000",
+                    "last": "70500",
+                    "state": "running",
+                    "investment": "1000",
+                    "totalPnl": "12.0",
+                }
+            ]
+        if path == "/api/v5/tradingBot/grid/orders-algo-pending":
+            return []
+        if path == "/api/v5/tradingBot/grid/sub-orders-history":
+            return [
+                {
+                    "tradeId": "sub-trade-1",
+                    "ordId": "sub-order-1",
+                    "side": "sell",
+                    "fillPx": "71000",
+                    "fillSz": "0.01",
+                    "fillPnl": "0.0",
+                    "fee": "0.0",
+                    "feeCcy": "USDT",
+                    "fillTime": "2026-03-07T10:02:00+08:00",
+                }
+            ]
+        if path in {"/api/v5/account/bills", "/api/v5/account/bills-archive"}:
+            if params and params.get("type") == 8:
+                return []
+            return [
+                {
+                    "billId": "bill-trade-1",
+                    "type": "2",
+                    "subType": "1",
+                    "pnl": "1.5",
+                    "fee": "0",
+                    "balChg": "1.5",
+                    "ccy": "USDT",
+                    "ordId": "account-order-1",
+                    "tradeId": "account-trade-1",
+                    "ts": "2026-03-07T10:02:00+08:00",
+                },
+                {
+                    "billId": "bill-trade-2",
+                    "type": "2",
+                    "subType": "1",
+                    "pnl": "3.5",
+                    "fee": "0",
+                    "balChg": "3.5",
+                    "ccy": "USDT",
+                    "ordId": "account-order-1",
+                    "tradeId": "account-trade-2",
+                    "ts": "2026-03-07T10:02:00+08:00",
+                },
+                {
+                    "billId": "bill-fee-1",
+                    "type": "2",
+                    "subType": "2",
+                    "pnl": "0",
+                    "fee": "0.15",
+                    "balChg": "-0.15",
+                    "ccy": "USDT",
+                    "ordId": "account-order-1",
+                    "tradeId": "account-trade-3",
+                    "ts": "2026-03-07T10:02:00+08:00",
+                },
+            ]
+        return []
+
+    monkeypatch.setattr("app.services.live_snapshot._okx_signed_get", fake_okx_signed_get)
+    monkeypatch.setattr("app.services.live_snapshot._fetch_market_params_best_effort", lambda *args, **kwargs: None)
+    monkeypatch.setattr("app.services.live_snapshot._build_live_simulated_pnl_curve", lambda **kwargs: [])
+    monkeypatch.setattr("app.services.live_snapshot._build_live_pnl_curve", lambda **kwargs: [])
+
+    snapshot = fetch_live_snapshot(LiveSnapshotRequest.model_validate(_payload("okx")))
+
+    assert snapshot.fills[0].realized_pnl == pytest.approx(5.0)
+    assert snapshot.fills[0].fee == pytest.approx(0.15)
+    assert any(item.kind == "trade" and item.pnl == 5.0 and item.order_id == "sub-order-1" for item in snapshot.ledger_entries)
+    assert any(item.kind == "fee" and item.fee == 0.15 and item.order_id == "sub-order-1" for item in snapshot.ledger_entries)
+
+
+def test_fetch_live_snapshot_uses_okx_sub_orders_without_trade_id_and_filters_account_bills(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_okx_signed_get(payload, path, params=None):
+        if path == "/api/v5/tradingBot/grid/orders-algo-details":
+            return [
+                {
+                    "algoId": "algo-123",
+                    "instId": "BTC-USDT-SWAP",
+                    "direction": "long",
+                    "basePos": "0.25",
+                    "avgPx": "70000",
+                    "last": "70500",
+                    "state": "running",
+                    "investment": "1000",
+                    "totalPnl": "12.0",
+                }
+            ]
+        if path == "/api/v5/tradingBot/grid/orders-algo-pending":
+            return []
+        if path == "/api/v5/tradingBot/grid/sub-orders-history":
+            raise LiveSnapshotError("Not Found", status_code=404)
+        if path == "/api/v5/tradingBot/grid/orders-algo-history":
+            raise LiveSnapshotError("The bot doesn’t exist or has already stopped", status_code=404)
+        if path == "/api/v5/tradingBot/grid/sub-orders" and params and params.get("type") == "filled":
+            return [
+                {
+                    "ordId": "sub-order-1",
+                    "side": "sell",
+                    "avgPx": "71000",
+                    "px": "71000",
+                    "accFillSz": "0.01",
+                    "sz": "0.01",
+                    "pnl": "",
+                    "fee": "-0.15",
+                    "feeCcy": "USDT",
+                    "uTime": "2026-03-07T10:02:00+08:00",
+                    "cTime": "2026-03-07T10:02:00+08:00",
+                }
+            ]
+        if path in {"/api/v5/account/bills", "/api/v5/account/bills-archive"}:
+            if params and params.get("type") == 8:
+                return [
+                    {
+                        "billId": "bill-funding-1",
+                        "type": "8",
+                        "subType": "174",
+                        "pnl": "1.2",
+                        "ccy": "USDT",
+                        "ts": "2026-03-07T08:00:00+08:00",
+                    }
+                ]
+            return [
+                {
+                    "billId": "bill-trade-1",
+                    "type": "2",
+                    "subType": "1",
+                    "pnl": "5.0",
+                    "fee": "0",
+                    "balChg": "5.0",
+                    "ccy": "USDT",
+                    "ordId": "sub-order-1",
+                    "tradeId": "bill-trade-1",
+                    "ts": "2026-03-07T10:02:00+08:00",
+                },
+                {
+                    "billId": "bill-fee-1",
+                    "type": "2",
+                    "subType": "2",
+                    "pnl": "0",
+                    "fee": "0.15",
+                    "balChg": "-0.15",
+                    "ccy": "USDT",
+                    "ordId": "sub-order-1",
+                    "tradeId": "bill-fee-1",
+                    "ts": "2026-03-07T10:02:00+08:00",
+                },
+                {
+                    "billId": "bill-other-order",
+                    "type": "2",
+                    "subType": "1",
+                    "pnl": "9999.0",
+                    "fee": "0",
+                    "balChg": "9999.0",
+                    "ccy": "USDT",
+                    "ordId": "other-order",
+                    "tradeId": "other-trade",
+                    "ts": "2026-03-07T10:05:00+08:00",
+                },
+            ]
+        return []
+
+    monkeypatch.setattr("app.services.live_snapshot._okx_signed_get", fake_okx_signed_get)
+    monkeypatch.setattr("app.services.live_snapshot._fetch_market_params_best_effort", lambda *args, **kwargs: None)
+    monkeypatch.setattr("app.services.live_snapshot._build_live_simulated_pnl_curve", lambda **kwargs: [])
+    monkeypatch.setattr("app.services.live_snapshot._build_live_pnl_curve", lambda **kwargs: [])
+
+    snapshot = fetch_live_snapshot(LiveSnapshotRequest.model_validate(_payload("okx")))
+
+    assert len(snapshot.fills) == 1
+    assert snapshot.fills[0].trade_id == "sub-order-1"
+    assert snapshot.fills[0].order_id == "sub-order-1"
+    assert snapshot.fills[0].realized_pnl == pytest.approx(5.0)
+    assert snapshot.fills[0].fee == pytest.approx(0.15)
+    assert any(item.kind == "trade" and item.order_id == "sub-order-1" and item.pnl == 5.0 for item in snapshot.ledger_entries)
+    assert any(item.kind == "fee" and item.order_id == "sub-order-1" and item.fee == 0.15 for item in snapshot.ledger_entries)
+    assert not any(item.order_id == "other-order" for item in snapshot.ledger_entries)
+    assert snapshot.daily_breakdown[0].realized_pnl == pytest.approx(5.0)
+    assert snapshot.daily_breakdown[0].fees_paid == pytest.approx(0.15)
+    assert snapshot.daily_breakdown[0].funding_net == pytest.approx(1.2)
+
+
 def test_fetch_live_snapshot_reports_pnl_curve_kline_failure_in_diagnostics(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_okx_signed_get(payload, path, params=None):
         if path == "/api/v5/tradingBot/grid/orders-algo-details":

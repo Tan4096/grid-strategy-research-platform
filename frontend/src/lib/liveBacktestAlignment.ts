@@ -30,6 +30,15 @@ export function buildLiveAlignedBacktestRequest(
       side:
         snapshot.inferred_grid.side ??
         (snapshot.position.side === "flat" ? request.strategy.side : snapshot.position.side),
+      lower: snapshot.inferred_grid.lower ?? request.strategy.lower,
+      upper: snapshot.inferred_grid.upper ?? request.strategy.upper,
+      grids: snapshot.inferred_grid.grid_count ?? request.strategy.grids,
+      leverage:
+        snapshot.robot.configured_leverage ??
+        snapshot.position.leverage ??
+        request.strategy.leverage,
+      stop_loss:
+        snapshot.robot.stop_loss_price ?? request.strategy.stop_loss,
       use_base_position: snapshot.inferred_grid.use_base_position ?? request.strategy.use_base_position,
       fee_rate: snapshot.market_params?.taker_fee_rate ?? request.strategy.fee_rate,
       maker_fee_rate: snapshot.market_params?.maker_fee_rate ?? request.strategy.maker_fee_rate,

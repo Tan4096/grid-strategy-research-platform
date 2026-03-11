@@ -1,4 +1,5 @@
 import type { LiveDiagnostic, LiveLedgerEntry, LiveSnapshotResponse } from "../../lib/api-schema";
+import { buildGridLedgerGroups } from "./ledgerGrouping";
 import type {
   LiveMonitoringIntegrityLevel,
   LiveMonitoringRiskLevel
@@ -9,7 +10,7 @@ export type LedgerKindFilter = "all" | LiveLedgerEntry["kind"];
 export type LedgerSideFilter = "all" | "buy" | "sell";
 export type LedgerMakerFilter = "all" | "maker" | "taker";
 export type LedgerTimeFilter = "all" | "24h" | "7d" | "30d";
-export type LedgerPreset = "all" | "trades" | "fees" | "funding";
+export type LedgerPreset = "trading" | "all" | "trades" | "fees" | "funding";
 
 export function fmt(value: number | null | undefined, digits = 2): string {
   return value !== null && value !== undefined && Number.isFinite(value) ? value.toFixed(digits) : "--";
@@ -49,6 +50,110 @@ export function formatDurationSeconds(totalSeconds: number | null | undefined): 
   const minutes = Math.floor(seconds / 60);
   const remain = seconds % 60;
   return `${minutes}m ${remain}s`;
+}
+
+export function resolveBaseAssetSymbol(symbol: string, exchangeSymbol: string): string {
+  const normalizedExchangeSymbol = exchangeSymbol.trim().toUpperCase();
+  if (normalizedExchangeSymbol.includes("-")) {
+    const [baseSymbol] = normalizedExchangeSymbol.split("-");
+    if (baseSymbol) {
+      return baseSymbol;
+    }
+  }
+
+  const normalizedSymbol = symbol.trim().toUpperCase();
+  const quoteSuffixes = ["USDT", "USDC", "USD", "BUSD", "FDUSD", "BTC", "ETH"];
+  const matchedQuote = quoteSuffixes.find(
+    (quoteSymbol) => normalizedSymbol.endsWith(quoteSymbol) && normalizedSymbol.length > quoteSymbol.length
+  );
+  return matchedQuote ? normalizedSymbol.slice(0, -matchedQuote.length) : normalizedSymbol;
+}
+
+export function fmtAssetAmount(value: number | null | undefined, digits = 6): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return "--";
+  }
+  return value.toFixed(digits).replace(/\.?0+$/, "");
+}
+
+export function resolveSingleGridBaseAmount(snapshot: LiveSnapshotResponse): number | null {
+  const contractSizeBase = snapshot.market_params?.contract_size_base;
+  const singleAmountContracts = snapshot.robot.single_amount;
+  if (
+    contractSizeBase === null ||
+    contractSizeBase === undefined ||
+    !Number.isFinite(contractSizeBase) ||
+    contractSizeBase <= 0 ||
+    singleAmountContracts === null ||
+    singleAmountContracts === undefined ||
+    !Number.isFinite(singleAmountContracts) ||
+    singleAmountContracts <= 0
+  ) {
+    return null;
+  }
+  return singleAmountContracts * contractSizeBase;
+}
+
+function resolveHeldGridCountMeta(snapshot: LiveSnapshotResponse): {
+  value: number | null;
+  source: "empty" | "orders" | "fills" | "estimated" | "unknown";
+} {
+  const positionQuantity = snapshot.position.quantity;
+  if (positionQuantity !== null && positionQuantity !== undefined && Number.isFinite(positionQuantity)) {
+    if (Math.abs(positionQuantity) <= 1e-9) {
+      return { value: 0, source: "empty" };
+    }
+  }
+
+  const direction =
+    snapshot.robot.direction === "long" || snapshot.robot.direction === "short"
+      ? snapshot.robot.direction
+      : snapshot.inferred_grid.side === "long" || snapshot.inferred_grid.side === "short"
+        ? snapshot.inferred_grid.side
+        : snapshot.position.side === "short"
+          ? "short"
+          : snapshot.position.side === "long"
+            ? "long"
+            : null;
+
+  if (direction && Array.isArray(snapshot.open_orders) && snapshot.open_orders.length > 0) {
+    const heldOrderSide = direction === "short" ? "buy" : "sell";
+    const heldOrderCount = snapshot.open_orders.filter((order) => order.side === heldOrderSide).length;
+    if (heldOrderCount > 0) {
+      return { value: heldOrderCount, source: "orders" };
+    }
+  }
+
+  if (Array.isArray(snapshot.fills) && snapshot.fills.length > 0) {
+    const grouped = buildGridLedgerGroups(snapshot);
+    if (grouped.openGroups.length > 0) {
+      return { value: grouped.openGroups.length, source: "fills" };
+    }
+    if (snapshot.completeness.fills_complete) {
+      return { value: grouped.estimatedBaseLots, source: "fills" };
+    }
+  }
+
+  const singleGridBaseAmount = resolveSingleGridBaseAmount(snapshot);
+  if (singleGridBaseAmount === null || singleGridBaseAmount <= 0) {
+    return { value: null, source: "unknown" };
+  }
+  return { value: Math.max(0, Math.round(positionQuantity / singleGridBaseAmount)), source: "estimated" };
+}
+
+export function resolveHeldGridCount(snapshot: LiveSnapshotResponse): number | null {
+  return resolveHeldGridCountMeta(snapshot).value;
+}
+
+export function resolveHeldGridCountSource(snapshot: LiveSnapshotResponse): "empty" | "orders" | "fills" | "estimated" | "unknown" {
+  return resolveHeldGridCountMeta(snapshot).source;
+}
+
+export function fmtGridCount(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return "--";
+  }
+  return `${Math.max(0, Math.round(value))} 格`;
 }
 
 function csvEscape(value: unknown): string {
@@ -96,16 +201,21 @@ export function MetricCard({
   label,
   value,
   accent = "text-slate-100",
+  meta,
   detail
 }: {
   label: string;
   value: string;
   accent?: string;
+  meta?: string;
   detail?: string;
 }) {
   return (
-    <div className="card-sub border border-slate-700/60 bg-slate-900/30 p-3">
-      <div className="text-xs uppercase tracking-wide text-slate-400">{label}</div>
+    <div className="card-sub flex min-h-[96px] flex-col justify-between border border-slate-700/60 bg-slate-900/30 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-xs uppercase tracking-wide text-slate-400">
+        <span>{label}</span>
+        {meta ? <span className="normal-case tracking-normal text-[11px] text-slate-500">{meta}</span> : null}
+      </div>
       <div className={`mt-2 text-lg font-semibold ${accent}`}>{value}</div>
       {detail ? <div className="mt-1 text-xs text-slate-400">{detail}</div> : null}
     </div>
@@ -118,7 +228,8 @@ export function DenseStat({
   accent = "text-slate-100",
   emphasis = false,
   detail,
-  tone = "neutral"
+  tone = "neutral",
+  uniformHeight = false
 }: {
   label: string;
   value: string;
@@ -126,6 +237,7 @@ export function DenseStat({
   emphasis?: boolean;
   detail?: string;
   tone?: "neutral" | "green" | "amber" | "red";
+  uniformHeight?: boolean;
 }) {
   const toneClass =
     tone === "green"
@@ -136,7 +248,7 @@ export function DenseStat({
           ? "border-rose-400/35 bg-rose-500/10"
           : "border-slate-700/60 bg-slate-950/30";
   return (
-    <div className={`rounded border px-3 py-2 ${toneClass}`}>
+    <div className={`rounded border ${uniformHeight ? "flex min-h-[68px] h-full flex-col px-3 py-1.5" : "px-3 py-2"} ${toneClass}`}>
       <div className="text-[11px] uppercase tracking-wide text-slate-400">{label}</div>
       <div className={`${emphasis ? "mt-1.5 text-xl" : "mt-1 text-sm"} font-semibold ${accent}`}>{value}</div>
       {detail ? <div className="mt-1 text-[11px] text-slate-500">{detail}</div> : null}

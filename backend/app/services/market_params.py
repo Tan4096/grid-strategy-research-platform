@@ -268,6 +268,7 @@ def _fetch_okx(symbol: str) -> Tuple[dict[str, float], list[str]]:
         "funding_rate_per_8h": 0.0,
         "price_tick_size": 0.1,
         "quantity_step_size": 0.0001,
+        "contract_size_base": 0.0,
         "min_notional": 5.0,
         "reference_price": 0.0,
     }
@@ -315,6 +316,20 @@ def _fetch_okx(symbol: str) -> Tuple[dict[str, float], list[str]]:
         min_sz = _safe_float(info.get("minSz"), 0.0)
         ct_val = _safe_float(info.get("ctVal"), 0.0)
         ct_val_ccy = str(info.get("ctValCcy") or "").upper()
+
+        if ct_val > 0:
+            if ct_val_ccy == base_ccy:
+                out["contract_size_base"] = ct_val
+            elif ct_val_ccy in {quote_ccy, "USDT", "USD", "USDC"}:
+                ref_price = get_okx_ticker_price()
+                if ref_price > 0:
+                    out["contract_size_base"] = ct_val / ref_price
+                else:
+                    notes.append("okx contract_size_base conversion fallback: missing ticker price")
+            elif ct_val_ccy:
+                notes.append(
+                    f"okx contract_size_base conversion fallback: unsupported ctValCcy={ct_val_ccy}"
+                )
 
         # OKX SWAP quantity precision is in contracts (lotSz). Backtest engine quantity is base-asset amount.
         # Convert contract step -> base step when contract value currency is known.
@@ -399,6 +414,7 @@ def fetch_market_params(source: DataSource, symbol: str) -> MarketParamsResponse
         "funding_rate_per_8h": 0.0,
         "price_tick_size": 0.1,
         "quantity_step_size": 0.0001,
+        "contract_size_base": 0.0,
         "min_notional": 5.0,
         "reference_price": 0.0,
     }
@@ -429,6 +445,7 @@ def fetch_market_params(source: DataSource, symbol: str) -> MarketParamsResponse
         funding_interval_hours=8,
         price_tick_size=float(payload["price_tick_size"]),
         quantity_step_size=float(payload["quantity_step_size"]),
+        contract_size_base=float(payload["contract_size_base"]) if float(payload["contract_size_base"]) > 0 else None,
         min_notional=float(payload["min_notional"]),
         reference_price=float(payload["reference_price"]) if float(payload["reference_price"]) > 0 else None,
         fetched_at=datetime.now(timezone.utc),

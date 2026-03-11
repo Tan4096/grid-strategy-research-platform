@@ -32,6 +32,7 @@ function normalizeLiveFill(raw: unknown): LiveFill | null {
         : typeof raw.isMaker === "boolean"
           ? raw.isMaker
           : null,
+    placed_at: asString(raw.placed_at ?? raw.placedAt, "") || null,
     timestamp: asString(raw.timestamp, new Date().toISOString())
   };
 }
@@ -503,6 +504,7 @@ function normalizeLiveSnapshotResponse(raw: unknown): LiveSnapshotResponse {
     created_at: asNullableString(robotRaw.created_at),
     updated_at: asNullableString(robotRaw.updated_at) ?? fetchedAt,
     investment_usdt: asNullableNumber(robotRaw.investment_usdt) ?? asNullableNumber(positionRaw.notional),
+    strategy_start_price: asNullableNumber(robotRaw.strategy_start_price),
     configured_leverage:
       asNullableNumber(robotRaw.configured_leverage) ??
       (positionRaw.leverage === null || positionRaw.leverage === undefined ? null : asNumber(positionRaw.leverage)),
@@ -516,6 +518,7 @@ function normalizeLiveSnapshotResponse(raw: unknown): LiveSnapshotResponse {
     lower_price: asNullableNumber(robotRaw.lower_price) ?? inferredGrid.lower,
     upper_price: asNullableNumber(robotRaw.upper_price) ?? inferredGrid.upper,
     grid_spacing: asNullableNumber(robotRaw.grid_spacing) ?? inferredGrid.grid_spacing,
+    single_amount: asNullableNumber(robotRaw.single_amount),
     grid_profit: asNullableNumber(robotRaw.grid_profit) ?? asNullableNumber(summary.realized_pnl),
     floating_profit: asNullableNumber(robotRaw.floating_profit) ?? asNullableNumber(summary.unrealized_pnl),
     total_fee: asNullableNumber(robotRaw.total_fee) ?? asNullableNumber(summary.fees_paid),
@@ -556,6 +559,7 @@ function normalizeLiveSnapshotResponse(raw: unknown): LiveSnapshotResponse {
           funding_interval_hours: asNumber(marketParamsRaw.funding_interval_hours, 8),
           price_tick_size: asNumber(marketParamsRaw.price_tick_size),
           quantity_step_size: asNumber(marketParamsRaw.quantity_step_size),
+          contract_size_base: asNullableNumber(marketParamsRaw.contract_size_base),
           min_notional: asNumber(marketParamsRaw.min_notional),
           reference_price:
             marketParamsRaw.reference_price === null || marketParamsRaw.reference_price === undefined

@@ -27,6 +27,29 @@ def test_build_live_robot_list_item_maps_okx_robot_payload() -> None:
     assert item.symbol == "BTCUSDT"
 
 
+def test_build_okx_bot_position_derives_notional_and_quantity_from_actual_leverage() -> None:
+    position = build_okx_bot_position(
+        {
+            "direction": "short",
+            "runPx": "65916",
+            "actualLever": "6.6",
+            "investment": "1000",
+            "liqPx": "77929.7",
+            "floatProfit": "-209.95",
+            "gridProfit": "304.25",
+            "sz": "1000"
+        },
+        normalize_position_side=lambda value, quantity=0.0: "short",
+        first_present=lambda payload, *keys: next((payload[key] for key in keys if key in payload), None),
+        safe_float=lambda value, fallback=0.0: float(value) if value not in (None, "") else fallback,
+        optional_float=lambda value: float(value) if value not in (None, "") else None,
+    )
+
+    assert position.mark_price == 65916
+    assert position.notional == 6600
+    assert position.quantity == 6600 / 65916
+
+
 def test_build_okx_bot_position_accepts_last_price_alias() -> None:
     position = build_okx_bot_position(
         {

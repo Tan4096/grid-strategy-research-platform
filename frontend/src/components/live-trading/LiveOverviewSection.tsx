@@ -1,10 +1,16 @@
 import type { LiveTradingViewModel } from "../../hooks/live/useLiveTradingViewModel";
 import {
+  fmtAssetAmount,
+  fmtGridCount,
   MetricCard,
   RobotBadge,
   formatDateTime,
   fmt,
-  pickPositiveValue
+  pct,
+  pickPositiveValue,
+  resolveBaseAssetSymbol,
+  resolveHeldGridCount,
+  resolveSingleGridBaseAmount
 } from "./shared";
 
 function computeMaxDrawdownPct(points: Array<{ value: number }>, investmentUsdt: number | null | undefined): number | null {
@@ -27,19 +33,6 @@ function computeMaxDrawdownPct(points: Array<{ value: number }>, investmentUsdt:
   return maxDrawdownPct;
 }
 
-function stateAccentClass(tone: "green" | "red" | "gray" | "amber"): string {
-  if (tone === "green") {
-    return "text-emerald-300";
-  }
-  if (tone === "red") {
-    return "text-rose-300";
-  }
-  if (tone === "amber") {
-    return "text-amber-200";
-  }
-  return "text-slate-300";
-}
-
 interface Props {
   viewModel: LiveTradingViewModel;
   autoRefreshPaused: boolean;
@@ -52,7 +45,7 @@ export default function LiveOverviewSection({
   viewModel,
   autoRefreshPaused,
   autoRefreshPausedReason = null,
-  monitoringActive: _monitoringActive,
+  monitoringActive,
   onApplyParameters
 }: Props) {
   const {
@@ -73,17 +66,36 @@ export default function LiveOverviewSection({
 
   const totalPnl = robot.total_pnl ?? ledgerSummary?.total_pnl ?? snapshot.summary.total_pnl;
   const maxDrawdownPct = computeMaxDrawdownPct(pnlCurve?.points ?? [], robot.investment_usdt);
-  const monitoringStateDetail = autoRefreshPaused
-    ? autoRefreshPausedReason || "自动刷新已暂停"
-    : _monitoringActive
-      ? "自动刷新运行中"
-      : "当前未自动刷新";
+  const baseAssetSymbol = resolveBaseAssetSymbol(snapshot.account.symbol, snapshot.account.exchange_symbol);
+  const singleGridBaseAmount = resolveSingleGridBaseAmount(snapshot);
+  const heldGridCount = resolveHeldGridCount(snapshot);
+  const positionDetail = heldGridCount !== null
+    ? singleGridBaseAmount !== null
+      ? `当前持仓 ${heldGridCount} 格 · 单格 ${fmtAssetAmount(singleGridBaseAmount)} ${baseAssetSymbol}`
+      : `当前持仓 ${heldGridCount} 格`
+    : singleGridBaseAmount !== null
+      ? `当前持仓 ${fmtAssetAmount(snapshot.position.quantity)} ${baseAssetSymbol} · 单格 ${fmtAssetAmount(singleGridBaseAmount)} ${baseAssetSymbol}`
+      : `当前持仓 ${fmtAssetAmount(snapshot.position.quantity)} ${baseAssetSymbol}`;
+  const heldGridDetail =
+    Math.abs(snapshot.position.quantity) <= 1e-9
+      ? "当前无持仓"
+      : positionDetail;
+  const monitoringMeta = [
+    `最近刷新 ${formatDateTime(windowInfo.fetched_at)}`,
+    autoRefreshPaused ? autoRefreshPausedReason || "自动刷新已暂停" : monitoringActive ? "自动刷新运行中" : "当前未自动刷新",
+    monitoring.stale ? "当前显示最近一次成功数据" : "数据最新"
+  ].join(" · ");
 
   return (
     <section className="card p-2.5 sm:p-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-sm font-semibold text-slate-100">监测总览</p>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <p className="text-sm font-semibold text-slate-100">监测总览</p>
+            <span className={`text-xs ${autoRefreshPaused ? "text-rose-300" : monitoring.stale ? "text-amber-200" : "text-slate-500"}`}>
+              {monitoringMeta}
+            </span>
+          </div>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <h2 className="text-lg font-semibold text-slate-100">{robot.name}</h2>
             <RobotBadge label={stateBadge.label} tone={stateBadge.tone} />
@@ -93,11 +105,6 @@ export default function LiveOverviewSection({
             {snapshot.account.exchange_symbol} · algoId {robot.algo_id} · 区间{" "}
             {formatDateTime(windowInfo.strategy_started_at)} - {formatDateTime(windowInfo.fetched_at)}
           </p>
-          {autoRefreshPaused || monitoring.stale ? (
-            <p className={`mt-1 text-xs ${autoRefreshPaused ? "text-rose-300" : "text-amber-200"}`}>
-              {autoRefreshPausedReason || "当前显示最近一次成功数据。"}
-            </p>
-          ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
           <button type="button" className="ui-btn ui-btn-secondary ui-btn-xs" onClick={onApplyParameters}>
@@ -108,16 +115,9 @@ export default function LiveOverviewSection({
 
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard
-          label="总收益"
-          value={`${fmt(totalPnl)} USDT`}
-          accent={totalPnl >= 0 ? "text-emerald-300" : "text-rose-300"}
-          detail={headline.pnl24h === null ? "近24h --" : `近24h ${fmt(headline.pnl24h)} USDT`}
-        />
-        <MetricCard
-          label="最大回撤"
-          value={maxDrawdownPct === null ? "--" : `${maxDrawdownPct.toFixed(2)}%`}
-          accent={maxDrawdownPct !== null && maxDrawdownPct <= 10 ? "text-emerald-300" : maxDrawdownPct !== null && maxDrawdownPct <= 20 ? "text-amber-200" : "text-rose-300"}
-          detail="按监测期收益曲线计算"
+          label="持仓网格数"
+          value={fmtGridCount(heldGridCount)}
+          detail={heldGridDetail}
         />
         <MetricCard
           label="距止损距离"
@@ -132,10 +132,17 @@ export default function LiveOverviewSection({
           }
         />
         <MetricCard
-          label="运行状态"
-          value={stateBadge.label}
-          accent={stateAccentClass(stateBadge.tone)}
-          detail={monitoringStateDetail}
+          label="总收益"
+          value={`${fmt(totalPnl)} USDT`}
+          accent={totalPnl >= 0 ? "text-emerald-300" : "text-rose-300"}
+          meta={`收益率 ${pct(robot.pnl_ratio)}`}
+          detail={headline.pnl24h === null ? "近24h --" : `近24h ${fmt(headline.pnl24h)} USDT`}
+        />
+        <MetricCard
+          label="最大回撤"
+          value={maxDrawdownPct === null ? "--" : `${maxDrawdownPct.toFixed(2)}%`}
+          accent={maxDrawdownPct !== null && maxDrawdownPct <= 10 ? "text-emerald-300" : maxDrawdownPct !== null && maxDrawdownPct <= 20 ? "text-amber-200" : "text-rose-300"}
+          detail="按监测期收益曲线计算"
         />
       </div>
     </section>

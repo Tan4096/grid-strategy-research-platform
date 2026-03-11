@@ -27,31 +27,85 @@ def _backfill_okx_bot_fill_realized_pnl(
     if not fills or not ledger_entries:
         return fills
 
+    def _normalize_key(value: str | None) -> str:
+        raw = (value or "").strip()
+        return raw if raw and raw != "0" else ""
+
+    def _timestamp_key(value: datetime) -> str:
+        return value.replace(microsecond=0).isoformat()
+
     trade_pnl_by_trade_id: dict[str, float] = {}
     trade_pnl_by_order_id: dict[str, float] = {}
-    for entry in ledger_entries:
-        if entry.kind != "trade" or abs(entry.pnl) <= 1e-9:
-            continue
-        trade_id = (entry.trade_id or "").strip()
-        order_id = (entry.order_id or "").strip()
-        if trade_id and trade_id != "0":
-            trade_pnl_by_trade_id[trade_id] = trade_pnl_by_trade_id.get(trade_id, 0.0) + entry.pnl
-        if order_id and order_id != "0":
-            trade_pnl_by_order_id[order_id] = trade_pnl_by_order_id.get(order_id, 0.0) + entry.pnl
+    fee_by_trade_id: dict[str, float] = {}
+    fee_by_order_id: dict[str, float] = {}
+    trade_entries_by_timestamp: dict[str, list[LiveLedgerEntry]] = {}
+    fee_entries_by_timestamp: dict[str, list[LiveLedgerEntry]] = {}
+    fill_counts_by_timestamp: dict[str, int] = {}
 
-    if not trade_pnl_by_trade_id and not trade_pnl_by_order_id:
+    for fill in fills:
+        ts_key = _timestamp_key(fill.timestamp)
+        fill_counts_by_timestamp[ts_key] = fill_counts_by_timestamp.get(ts_key, 0) + 1
+
+    for entry in ledger_entries:
+        trade_id = _normalize_key(entry.trade_id)
+        order_id = _normalize_key(entry.order_id)
+        ts_key = _timestamp_key(entry.timestamp)
+        if entry.kind == "trade" and abs(entry.pnl) > 1e-9:
+            trade_entries_by_timestamp.setdefault(ts_key, []).append(entry)
+            if trade_id:
+                trade_pnl_by_trade_id[trade_id] = trade_pnl_by_trade_id.get(trade_id, 0.0) + entry.pnl
+            if order_id:
+                trade_pnl_by_order_id[order_id] = trade_pnl_by_order_id.get(order_id, 0.0) + entry.pnl
+        elif entry.kind == "fee" and abs(entry.fee) > 1e-9:
+            fee_entries_by_timestamp.setdefault(ts_key, []).append(entry)
+            if trade_id:
+                fee_by_trade_id[trade_id] = fee_by_trade_id.get(trade_id, 0.0) + entry.fee
+            if order_id:
+                fee_by_order_id[order_id] = fee_by_order_id.get(order_id, 0.0) + entry.fee
+
+    if not trade_pnl_by_trade_id and not trade_pnl_by_order_id and not fee_by_trade_id and not fee_by_order_id:
         return fills
+
+    def _sum_unambiguous(entries: list[LiveLedgerEntry], attr: str) -> float | None:
+        if not entries:
+            return None
+        order_ids = {_normalize_key(entry.order_id) for entry in entries if _normalize_key(entry.order_id)}
+        if len(order_ids) > 1:
+            return None
+        return sum(float(getattr(entry, attr)) for entry in entries)
 
     backfilled: list[LiveFill] = []
     for fill in fills:
         realized_pnl = fill.realized_pnl
-        trade_id = (fill.trade_id or "").strip()
-        order_id = (fill.order_id or "").strip()
+        fee = fill.fee
+        trade_id = _normalize_key(fill.trade_id)
+        order_id = _normalize_key(fill.order_id)
+        matched_by_id = False
         if trade_id and trade_id in trade_pnl_by_trade_id:
             realized_pnl = trade_pnl_by_trade_id[trade_id]
+            matched_by_id = True
         elif order_id and order_id in trade_pnl_by_order_id:
             realized_pnl = trade_pnl_by_order_id[order_id]
-        backfilled.append(fill.model_copy(update={"realized_pnl": realized_pnl}))
+            matched_by_id = True
+
+        if trade_id and trade_id in fee_by_trade_id:
+            fee = fee_by_trade_id[trade_id]
+            matched_by_id = True
+        elif order_id and order_id in fee_by_order_id:
+            fee = fee_by_order_id[order_id]
+            matched_by_id = True
+
+        if not matched_by_id and abs(realized_pnl) <= 1e-9 and abs(fee) <= 1e-9:
+            ts_key = _timestamp_key(fill.timestamp)
+            if fill_counts_by_timestamp.get(ts_key, 0) == 1:
+                fallback_realized = _sum_unambiguous(trade_entries_by_timestamp.get(ts_key, []), "pnl")
+                fallback_fee = _sum_unambiguous(fee_entries_by_timestamp.get(ts_key, []), "fee")
+                if fallback_realized is not None:
+                    realized_pnl = fallback_realized
+                if fallback_fee is not None:
+                    fee = fallback_fee
+
+        backfilled.append(fill.model_copy(update={"realized_pnl": realized_pnl, "fee": fee}))
     return backfilled
 
 
