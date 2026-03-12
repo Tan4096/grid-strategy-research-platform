@@ -1286,15 +1286,14 @@ async function seedStorage(page, backtestRequestSeed = demoBacktestRequest) {
   );
 }
 
-async function createPage(browser) {
+async function createPage(browser, backtestRequestSeed = demoBacktestRequest) {
   const context = await browser.newContext({
     viewport: { width: 1600, height: 1280 },
     colorScheme: screenshotColorScheme,
     deviceScaleFactor: 1
   });
   const page = await context.newPage();
-  const backtestFixture = await getBacktestFixture();
-  await seedStorage(page, backtestFixture.request);
+  await seedStorage(page, backtestRequestSeed);
   await installMockRoutes(page);
   await page.goto(FRONTEND_URL, { waitUntil: "domcontentloaded" });
   await page.waitForSelector("#root");
@@ -1335,8 +1334,8 @@ async function stabilizeCharts(page, delayMs = 900) {
   await page.waitForTimeout(delayMs);
 }
 
-async function captureBacktest(browser) {
-  const { context, page } = await createPage(browser);
+async function captureBacktest(browser, backtestRequestSeed) {
+  const { context, page } = await createPage(browser, backtestRequestSeed);
   await page.setViewportSize({ width: 1800, height: 1500 });
   await page.getByRole("button", { name: "开始回测" }).click();
   await page.getByText("收益率曲线").waitFor();
@@ -1384,8 +1383,9 @@ async function main() {
   }
 
   const browser = await chromium.launch({ headless: true });
+  const backtestFixture = await getBacktestFixture();
   try {
-    await captureBacktest(browser);
+    await captureBacktest(browser, backtestFixture.request);
     await captureOptimization(browser);
     await captureLive(browser);
   } finally {

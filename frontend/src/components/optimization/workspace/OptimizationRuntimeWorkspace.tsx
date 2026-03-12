@@ -12,7 +12,6 @@ interface Props {
   optimizationTransportMode: JobTransportMode;
   onCancelOptimization: () => void;
   showControls?: boolean;
-  compact?: boolean;
 }
 
 function fmt(value: number | null, digits = 2): string {
@@ -38,17 +37,12 @@ function formatEta(seconds: number | null): string {
   return `${s}s`;
 }
 
-function formatTransportMode(mode: JobTransportMode): string {
-  if (mode === "sse") {
-    return "SSE 实时流";
+function shortJobId(jobId: string): string {
+  const value = (jobId || "").trim();
+  if (value.length <= 12) {
+    return value || "-";
   }
-  if (mode === "polling") {
-    return "轮询降级";
-  }
-  if (mode === "connecting") {
-    return "连接中";
-  }
-  return "等待中";
+  return `${value.slice(0, 6)}...${value.slice(-6)}`;
 }
 
 export default function OptimizationRuntimeWorkspace({
@@ -59,8 +53,7 @@ export default function OptimizationRuntimeWorkspace({
   optimizationEtaSeconds,
   optimizationTransportMode,
   onCancelOptimization,
-  showControls = true,
-  compact = false
+  showControls = true
 }: Props) {
   const scrollToParameterPanel = () => {
     const parameterPanel = document.querySelector("aside");
@@ -97,13 +90,9 @@ export default function OptimizationRuntimeWorkspace({
       )}
       <div className="card p-2.5 sm:p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <p className="text-sm font-semibold text-slate-100">运行状态</p>
-            <p className="text-xs text-slate-400">
-              {compact ? "进度与 ETA 会持续刷新" : "任务状态与进度会在这里实时更新"}
-            </p>
-          </div>
+          <p className="text-sm font-semibold text-slate-100">运行状态</p>
           <div className="flex items-center gap-2">
+            <span className="mono text-base font-bold leading-none text-cyan-300 sm:text-xl">{fmt(progressValue, 2)}%</span>
             {showCancel && (
               <button
                 className="ui-btn ui-btn-secondary ui-btn-xs"
@@ -116,93 +105,18 @@ export default function OptimizationRuntimeWorkspace({
           </div>
         </div>
 
-        <div className="mt-2">
-          <div className="flex items-center justify-between text-xs text-slate-400">
-            <span>进度</span>
-            <span>{fmt(progressValue, 2)}%</span>
-          </div>
-          <div className="ui-progress-track mt-1">
+        <div className="mt-1">
+          <div className="ui-progress-track h-2.5">
             <div className="ui-progress-fill" style={{ width: `${progressValue}%` }} />
           </div>
         </div>
 
         {optimizationStatus ? (
           <>
-            <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-300 sm:grid-cols-4">
-              <div className="card-sub px-2 py-1.5">状态: {statusText}</div>
-              <div className="card-sub px-2 py-1.5">ETA: {formatEta(optimizationEtaSeconds)}</div>
-              <div className="card-sub px-2 py-1.5">组合: {optimizationStatus.job.total_combinations}</div>
-              <div className="card-sub px-2 py-1.5">
-                步骤: {optimizationStatus.job.completed_steps}/{optimizationStatus.job.total_steps}
-              </div>
-            </div>
-
-            {optimizationStatus.job.message && (
-              <p className="mt-2 text-xs text-slate-400">{optimizationStatus.job.message}</p>
-            )}
-
-            {compact ? (
-              <details className="mt-2 rounded border border-slate-700/60 bg-slate-900/30 p-2 text-xs text-slate-300">
-                <summary className="cursor-pointer font-semibold text-slate-200">任务详情</summary>
-                <div className="mt-2 space-y-1.5">
-                  <p className="break-all text-xs text-slate-400">任务ID: {optimizationStatus.job.job_id}</p>
-                  <p className="text-xs text-slate-400">传输: {formatTransportMode(optimizationTransportMode)}</p>
-                  <p className="text-xs text-slate-400">
-                    完成: {optimizationStatus.job.trials_completed} · 剪枝: {optimizationStatus.job.trials_pruned} · 剪枝率:{" "}
-                    {fmt((optimizationStatus.job.pruning_ratio ?? 0) * 100, 1)}%
-                  </p>
-                </div>
-                {(optimizationStatus.train_window || optimizationStatus.validation_window) && (
-                  <div className="mobile-two-col-grid mt-2 grid grid-cols-1 gap-2 xl:grid-cols-2">
-                    {optimizationStatus.train_window && (
-                      <div className="rounded border border-slate-700/60 p-2">
-                        训练期: {new Date(optimizationStatus.train_window.start_time).toLocaleString()} ~{" "}
-                        {new Date(optimizationStatus.train_window.end_time).toLocaleString()} ({optimizationStatus.train_window.candles} 根)
-                      </div>
-                    )}
-                    {optimizationStatus.validation_window && (
-                      <div className="rounded border border-slate-700/60 p-2">
-                        验证期: {new Date(optimizationStatus.validation_window.start_time).toLocaleString()} ~{" "}
-                        {new Date(optimizationStatus.validation_window.end_time).toLocaleString()} ({optimizationStatus.validation_window.candles} 根)
-                      </div>
-                    )}
-                  </div>
-                )}
-              </details>
-            ) : (
-              <>
-                <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <p className="break-all text-sm text-slate-200">任务ID: {optimizationStatus.job.job_id}</p>
-                    <p className="text-xs text-slate-500">传输 {formatTransportMode(optimizationTransportMode)}</p>
-                    <p className="text-xs text-slate-500">
-                      完成 {optimizationStatus.job.trials_completed} · 剪枝 {optimizationStatus.job.trials_pruned} · 剪枝率{" "}
-                      {fmt((optimizationStatus.job.pruning_ratio ?? 0) * 100, 1)}%
-                    </p>
-                  </div>
-                </div>
-
-                {(optimizationStatus.train_window || optimizationStatus.validation_window) && (
-                  <details className="mt-2 rounded border border-slate-700/60 bg-slate-900/30 p-2 text-xs text-slate-300">
-                    <summary className="cursor-pointer font-semibold text-slate-200">训练/验证区间</summary>
-                    <div className="mobile-two-col-grid mt-2 grid grid-cols-1 gap-2 xl:grid-cols-2">
-                      {optimizationStatus.train_window && (
-                        <div className="rounded border border-slate-700/60 p-2">
-                          训练期: {new Date(optimizationStatus.train_window.start_time).toLocaleString()} ~{" "}
-                          {new Date(optimizationStatus.train_window.end_time).toLocaleString()} ({optimizationStatus.train_window.candles} 根)
-                        </div>
-                      )}
-                      {optimizationStatus.validation_window && (
-                        <div className="rounded border border-slate-700/60 p-2">
-                          验证期: {new Date(optimizationStatus.validation_window.start_time).toLocaleString()} ~{" "}
-                          {new Date(optimizationStatus.validation_window.end_time).toLocaleString()} ({optimizationStatus.validation_window.candles} 根)
-                        </div>
-                      )}
-                    </div>
-                  </details>
-                )}
-              </>
-            )}
+            <p className="mt-2 text-xs text-slate-400">
+              状态 {statusText} · 进度 {fmt(progressValue, 2)}% · ETA {formatEta(optimizationEtaSeconds)} · 任务{" "}
+              {shortJobId(optimizationStatus.job.job_id)}
+            </p>
           </>
         ) : (
           <div className="mt-2 flex flex-wrap items-center gap-2">

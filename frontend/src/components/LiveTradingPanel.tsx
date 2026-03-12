@@ -28,6 +28,7 @@ interface Props {
   onApplySuggestedWindow: (days: number) => void;
   onStopMonitoring: () => void;
   connectionPanelNode?: ReactNode;
+  isVisible?: boolean;
 }
 
 export default function LiveTradingPanel({
@@ -48,7 +49,8 @@ export default function LiveTradingPanel({
   onRunBacktest: _onRunBacktest,
   onApplySuggestedWindow,
   onStopMonitoring: _onStopMonitoring,
-  connectionPanelNode
+  connectionPanelNode,
+  isVisible = true
 }: Props) {
   const [miniBacktestWindowDays, setMiniBacktestWindowDays] = useState<7 | 30>(30);
   const viewModel = useLiveTradingViewModel({
@@ -57,7 +59,12 @@ export default function LiveTradingPanel({
     autoRefreshPaused,
     trend
   });
-  const miniBacktest = useLiveMiniBacktest({ request, snapshot, windowDays: miniBacktestWindowDays });
+  const miniBacktest = useLiveMiniBacktest({
+    request,
+    snapshot,
+    windowDays: miniBacktestWindowDays,
+    enabled: isVisible
+  });
 
   if (!snapshot && loading) {
     return (
@@ -98,9 +105,11 @@ export default function LiveTradingPanel({
       {connectionPanelNode}
       <LiveOverviewSection
         viewModel={viewModel}
+        refreshLoading={loading}
         autoRefreshPaused={autoRefreshPaused}
         autoRefreshPausedReason={autoRefreshPausedReason}
         monitoringActive={monitoringActive}
+        onRefresh={onRefresh}
         onApplyParameters={onApplyParameters}
       />
       <LiveRiskConfigSection

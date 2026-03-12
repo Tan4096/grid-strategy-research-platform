@@ -4,7 +4,7 @@ import ComputeSection from "./optimization/ComputeSection";
 import RobustSection from "./optimization/RobustSection";
 import ScanSection from "./optimization/ScanSection";
 import StrategySection from "./optimization/StrategySection";
-import { estimateSweepCount } from "./optimization/shared";
+import { estimateSweepCount, sweepTitle } from "./optimization/shared";
 import { readPlain, STORAGE_KEYS, writePlain } from "../lib/storage";
 
 interface Props {
@@ -92,9 +92,22 @@ export default function OptimizationControls({
       : config.optimization_mode === "bayesian"
       ? "Bayesian"
       : "Grid";
-  const scanSummary = `${estimatedCombinations} 空间 · ${sampledCombinations} ${usesTrialBudget ? "试验预算" : "执行组合"}`;
+  const enabledScanParams = [
+    config.leverage.enabled ? sweepTitle("leverage") : null,
+    config.grids.enabled ? sweepTitle("grids") : null,
+    config.band_width_pct.enabled ? sweepTitle("band_width_pct") : null,
+    config.stop_loss_ratio_pct.enabled ? sweepTitle("stop_loss_ratio_pct") : null
+  ].filter((item): item is string => Boolean(item));
+  const scanSummary =
+    enabledScanParams.length > 0
+      ? `已开启扫描：${enabledScanParams.join("、")}`
+      : "未开启扫描参数";
   const strategySummary = `${modeName} · 目标 ${config.target}`;
-  const robustSummary = `${config.walk_forward_enabled ? "Walk-forward 开启" : "Walk-forward 关闭"} · 最小交易 ${config.min_closed_trades}`;
+  const maxDrawdownSummary =
+    config.max_drawdown_pct_limit === null || config.max_drawdown_pct_limit === undefined
+      ? "最大回撤不限"
+      : `最大回撤≤${config.max_drawdown_pct_limit}%`;
+  const robustSummary = `${config.walk_forward_enabled ? "Walk-forward 开启" : "Walk-forward 关闭"} · 最小交易 ${config.min_closed_trades} · ${maxDrawdownSummary}`;
   const computeSummary = `${config.max_workers} 进程 / 批 ${config.batch_size} / Chunk ${config.chunk_size}`;
 
   const toggleSection = (key: keyof typeof sectionsOpen) => {

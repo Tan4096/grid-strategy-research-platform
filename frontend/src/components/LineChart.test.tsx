@@ -198,8 +198,10 @@ describe("LineChart", () => {
     });
 
     const linePath = () => mounted.container.querySelector('path[fill="none"]');
+    const zeroAxisLine = () => mounted.container.querySelector('line[stroke-dasharray="6 4"]');
 
     expect(linePath()?.getAttribute("stroke")).toBe("#22c55e");
+    expect(zeroAxisLine()).not.toBeNull();
 
     act(() => {
       svg?.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: 80, clientY: 220 }));

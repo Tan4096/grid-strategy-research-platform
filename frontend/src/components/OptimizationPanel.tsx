@@ -227,7 +227,6 @@ export default function OptimizationPanel({
             optimizationTransportMode={optimizationTransportMode}
             onCancelOptimization={onCancelOptimization}
             showControls={false}
-            compact={isMobileViewport}
           />
         )}
 

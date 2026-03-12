@@ -357,7 +357,7 @@ async function mount(node: ReactNode): Promise<MountedNode> {
   const root: Root = createRoot(container);
   await act(async () => {
     root.render(node);
-    await Promise.resolve();
+    await vi.dynamicImportSettled();
   });
   return {
     container,
@@ -377,7 +377,7 @@ describe("App live desktop layout", () => {
     const liveButton = Array.from(mounted.container.querySelectorAll("button")).find((item) => item.textContent === "go-live");
     await act(async () => {
       liveButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      await Promise.resolve();
+      await vi.dynamicImportSettled();
     });
 
     const parameterForm = mounted.container.querySelector('[data-testid="parameter-form"]');
@@ -398,7 +398,7 @@ describe("App live desktop layout", () => {
     const liveButton = Array.from(mounted.container.querySelectorAll("button")).find((item) => item.textContent === "go-live");
     await act(async () => {
       liveButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      await Promise.resolve();
+      await vi.dynamicImportSettled();
     });
 
     const runButton = Array.from(mounted.container.querySelectorAll("button")).find((item) => item.textContent === "run-live-backtest");

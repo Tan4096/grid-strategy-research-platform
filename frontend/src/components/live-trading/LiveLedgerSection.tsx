@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { LiveSnapshotResponse } from "../../lib/api-schema";
 import type { LiveTradingViewModel } from "../../hooks/live/useLiveTradingViewModel";
 import {
@@ -10,7 +10,7 @@ import {
   type FundingLedgerRow,
   type OpenGridLedgerGroup
 } from "./ledgerGrouping";
-import { DenseStat, fmt, formatDurationSeconds } from "./shared";
+import { fmt, formatDurationSeconds } from "./shared";
 
 interface Props {
   viewModel: LiveTradingViewModel;
@@ -36,10 +36,9 @@ const LEDGER_TIME_OPTIONS: Array<{ value: "all" | "24h" | "7d" | "30d"; label: s
   { value: "30d", label: "近 30 天" }
 ];
 
-const LEDGER_SIDE_OPTIONS: Array<{ value: "all" | "buy" | "sell"; label: string }> = [
-  { value: "all", label: "全部方向" },
-  { value: "buy", label: "买入开仓" },
-  { value: "sell", label: "卖出开仓" }
+const LEDGER_SORT_OPTIONS: Array<{ value: "desc" | "asc"; label: string }> = [
+  { value: "desc", label: "↓" },
+  { value: "asc", label: "↑" }
 ];
 
 const LEDGER_PAGE_SIZE = 20;
@@ -285,26 +284,24 @@ export default function LiveLedgerSection({ viewModel }: Props) {
   const {
     snapshot,
     completeness,
-    ledgerSummary,
     windowInfo,
     ledgerView,
     setLedgerView,
     dailyBreakdown,
     timeFilter,
     setTimeFilter,
-    sideFilter,
-    setSideFilter,
-    realizedOnly,
-    setRealizedOnly,
     searchQuery,
     setSearchQuery
   } = viewModel;
 
   const [gridSection, setGridSection] = useState<GridLedgerSection>("open");
+  const [sortDirection, setSortDirection] = useState<"desc" | "asc">("desc");
   const [ledgerPage, setLedgerPage] = useState(1);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+  const [ledgerScrollbarVisible, setLedgerScrollbarVisible] = useState(false);
+  const hideScrollbarTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  if (!snapshot || !completeness || !ledgerSummary || !windowInfo) {
+  if (!snapshot || !completeness || !windowInfo) {
     return null;
   }
 
@@ -315,21 +312,21 @@ export default function LiveLedgerSection({ viewModel }: Props) {
       filterClosedGridGroups(closedGroups, {
         timeFilter,
         searchQuery,
-        sideFilter,
-        realizedOnly,
+        sideFilter: "all",
+        realizedOnly: false,
         now
       }),
-    [closedGroups, timeFilter, searchQuery, sideFilter, realizedOnly, now]
+    [closedGroups, timeFilter, searchQuery, now]
   );
   const filteredOpenGroups = useMemo(
     () =>
       filterOpenGridGroups(openGroups, {
         timeFilter,
         searchQuery,
-        sideFilter,
+        sideFilter: "all",
         now
       }),
-    [openGroups, timeFilter, searchQuery, sideFilter, now]
+    [openGroups, timeFilter, searchQuery, now]
   );
   const filteredFundingRows = useMemo(
     () =>
@@ -341,102 +338,93 @@ export default function LiveLedgerSection({ viewModel }: Props) {
     [fundingRows, timeFilter, searchQuery, now]
   );
 
+  const sortedClosedGroups = useMemo(() => {
+    const sorted = [...filteredClosedGroups].sort(
+      (left, right) => Date.parse(left.closeLeg.fill.timestamp) - Date.parse(right.closeLeg.fill.timestamp)
+    );
+    return sortDirection === "desc" ? sorted.reverse() : sorted;
+  }, [filteredClosedGroups, sortDirection]);
+
+  const sortedOpenGroups = useMemo(() => {
+    const sorted = [...filteredOpenGroups].sort(
+      (left, right) =>
+        Date.parse(left.closeOrder?.timestamp ?? left.openLeg.fill.timestamp) -
+        Date.parse(right.closeOrder?.timestamp ?? right.openLeg.fill.timestamp)
+    );
+    return sortDirection === "desc" ? sorted.reverse() : sorted;
+  }, [filteredOpenGroups, sortDirection]);
+
+  const sortedFundingRows = useMemo(() => {
+    const sorted = [...filteredFundingRows].sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp));
+    return sortDirection === "desc" ? sorted.reverse() : sorted;
+  }, [filteredFundingRows, sortDirection]);
+
   const activeCount =
-    gridSection === "closed" ? filteredClosedGroups.length : gridSection === "open" ? filteredOpenGroups.length : filteredFundingRows.length;
+    gridSection === "closed" ? sortedClosedGroups.length : gridSection === "open" ? sortedOpenGroups.length : sortedFundingRows.length;
   const pageCount = Math.max(1, Math.ceil(activeCount / LEDGER_PAGE_SIZE));
   const visiblePages = useMemo(() => paginationWindow(ledgerPage, pageCount), [ledgerPage, pageCount]);
 
   useEffect(() => {
     setLedgerPage(1);
-  }, [gridSection, timeFilter, searchQuery, sideFilter, realizedOnly, activeCount]);
+  }, [gridSection, timeFilter, searchQuery, sortDirection, activeCount]);
 
   useEffect(() => {
     setLedgerPage((current) => Math.min(current, pageCount));
   }, [pageCount]);
 
-  const paginatedClosedGroups = useMemo(() => slicePage(filteredClosedGroups, ledgerPage), [filteredClosedGroups, ledgerPage]);
-  const paginatedOpenGroups = useMemo(() => slicePage(filteredOpenGroups, ledgerPage), [filteredOpenGroups, ledgerPage]);
-  const paginatedFundingRows = useMemo(() => slicePage(filteredFundingRows, ledgerPage), [filteredFundingRows, ledgerPage]);
+  useEffect(
+    () => () => {
+      if (hideScrollbarTimerRef.current !== null) {
+        clearTimeout(hideScrollbarTimerRef.current);
+      }
+    },
+    []
+  );
+
+  const paginatedClosedGroups = useMemo(() => slicePage(sortedClosedGroups, ledgerPage), [sortedClosedGroups, ledgerPage]);
+  const paginatedOpenGroups = useMemo(() => slicePage(sortedOpenGroups, ledgerPage), [sortedOpenGroups, ledgerPage]);
+  const paginatedFundingRows = useMemo(() => slicePage(sortedFundingRows, ledgerPage), [sortedFundingRows, ledgerPage]);
 
   const pageStart = activeCount === 0 ? 0 : (ledgerPage - 1) * LEDGER_PAGE_SIZE + 1;
   const pageEnd = Math.min(activeCount, ledgerPage * LEDGER_PAGE_SIZE);
 
-  const ledgerViewSummary =
-    ledgerView === "summary"
-      ? "查看收益拆解与成本占比。"
-      : ledgerView === "daily"
-        ? `当前共 ${dailyBreakdown.length} 个按日汇总条目。`
-        : gridSection === "closed"
-          ? `当前共 ${filteredClosedGroups.length} 个已平仓网格。`
-          : gridSection === "open"
-            ? `当前共 ${filteredOpenGroups.length} 个未平仓网格。`
-            : `当前共 ${filteredFundingRows.length} 条资金费。`;
-
   const hasLedgerFilters =
-    gridSection !== "open" ||
     timeFilter !== "all" ||
-    sideFilter !== "all" ||
-    realizedOnly ||
+    sortDirection !== "desc" ||
     searchQuery.trim().length > 0;
+
+  const showLedgerScrollbar = () => {
+    if (!ledgerScrollbarVisible) {
+      setLedgerScrollbarVisible(true);
+    }
+    if (hideScrollbarTimerRef.current !== null) {
+      clearTimeout(hideScrollbarTimerRef.current);
+    }
+    hideScrollbarTimerRef.current = setTimeout(() => {
+      setLedgerScrollbarVisible(false);
+      hideScrollbarTimerRef.current = null;
+    }, 700);
+  };
 
   return (
     <section className="card p-2.5 sm:p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="ui-tab-group" aria-label="账单模块">
-          <span className="inline-flex items-center gap-2 rounded-xl border border-slate-700/80 bg-slate-950 px-3.5 py-1.5 text-sm font-bold text-slate-50 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]">
-            <span className="h-4 w-1.5 rounded-full bg-slate-200" />
-            账单
-          </span>
           {([
-            ["summary", "摘要"],
-            ["daily", "按日汇总"],
-            ["ledger", "逐笔账单"]
+            ["ledger", "账单"],
+            ["daily", "按日汇总"]
           ] as const).map(([value, label]) => (
             <button
               key={value}
               type="button"
-              className={`ui-tab !border-transparent !bg-transparent !shadow-none hover:!bg-slate-900/10 ${
-                ledgerView === value ? "is-active !border-slate-300/25 !bg-slate-200/10 text-slate-100" : "text-slate-400"
-              }`}
+              className={`ui-tab ${ledgerView === value ? "is-active" : ""}`}
               onClick={() => setLedgerView(value)}
             >
               {label}
             </button>
           ))}
         </div>
-        <div className="text-right text-xs text-slate-400">
-          未平仓 {openGroups.length} · 已平仓 {closedGroups.length} · 范围 {new Date(windowInfo.strategy_started_at).toLocaleDateString()} ~ {new Date(windowInfo.compared_end_at).toLocaleDateString()}
-          {!completeness.funding_complete ? " · 资金费部分" : ""}
-          {completeness.bills_window_clipped ? " · 账单时间窗已截断" : ""}
-        </div>
       </div>
-
-      <div className="mt-1.5 flex flex-wrap items-center justify-end gap-2">
-        <div className="text-xs text-slate-400">{ledgerViewSummary}</div>
-      </div>
-
-      {ledgerView === "summary" && (
-        <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-          <DenseStat label="已实现" value={`${fmt(ledgerSummary.realized)} USDT`} />
-          <DenseStat label="未实现" value={`${fmt(ledgerSummary.unrealized)} USDT`} accent={amountTone(ledgerSummary.unrealized)} />
-          <DenseStat label="交易净额" value={`${fmt(ledgerSummary.trading_net)} USDT`} accent={amountTone(ledgerSummary.trading_net)} />
-          <DenseStat label="总净额" value={`${fmt(ledgerSummary.total_pnl)} USDT`} accent={amountTone(ledgerSummary.total_pnl)} />
-          <DenseStat label="手续费" value={`${fmt(ledgerSummary.fees)} USDT`} />
-          <DenseStat label="资金费" value={`${fmt(ledgerSummary.funding)} USDT`} accent={fundingAmountTone(ledgerSummary.funding)} />
-          <DenseStat
-            label="资金费/总收益"
-            value={Math.abs(ledgerSummary.total_pnl) > 0 ? `${((ledgerSummary.funding / ledgerSummary.total_pnl) * 100).toFixed(1)}%` : "--"}
-          />
-          <DenseStat
-            label="总成本/总收益"
-            value={
-              Math.abs(ledgerSummary.total_pnl) > 0
-                ? `${(((Math.abs(ledgerSummary.fees) + Math.abs(Math.min(ledgerSummary.funding, 0))) / Math.abs(ledgerSummary.total_pnl)) * 100).toFixed(1)}%`
-                : "--"
-            }
-          />
-        </div>
-      )}
 
       {ledgerView === "daily" && (
         <div className="mt-4 overflow-x-auto rounded border border-slate-700/60 bg-slate-900/20">
@@ -473,8 +461,8 @@ export default function LiveLedgerSection({ viewModel }: Props) {
       {ledgerView === "ledger" && (
         <div className="mt-3 space-y-2.5">
           <div className="sticky top-0 z-10 rounded border border-slate-700/60 bg-slate-900/20 p-2.5 backdrop-blur">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="ui-tab-group" aria-label="网格账单视图切换">
+            <div className="flex flex-wrap items-center gap-2 xl:flex-nowrap">
+              <div className="ui-tab-group shrink-0" aria-label="网格账单视图切换">
                 {GRID_LEDGER_SECTIONS.map((section) => (
                   <button
                     key={section.value}
@@ -486,25 +474,14 @@ export default function LiveLedgerSection({ viewModel }: Props) {
                   </button>
                 ))}
               </div>
-              <div className="text-xs text-slate-400">
-                {gridSection === "closed"
-                  ? "一组账单对应一个已完成网格：开仓 + 平仓。"
-                  : gridSection === "open"
-                    ? "未平仓网格按待平仓挂单展示，底仓网格已单独标记。"
-                    : "资金费单独列出，不再混进网格账单。"}
-                {gridSection === "open" && !completeness.fills_complete ? " · 当前数量可能偏保守" : ""}
-              </div>
-            </div>
-
-            <div className="mt-2.5 grid gap-2 lg:grid-cols-[minmax(220px,1.4fr)_minmax(0,0.8fr)_minmax(0,0.8fr)_auto]">
               <input
                 type="search"
-                className="ui-input"
+                className="ui-input min-w-[220px] grow"
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
                 placeholder={gridSection === "funding" ? "搜索时间 / 币种" : "搜索订单号 / 成交号 / 时间"}
               />
-              <select className="ui-input" value={timeFilter} onChange={(event) => setTimeFilter(event.target.value as typeof timeFilter)}>
+              <select className="ui-input w-full min-w-[150px] xl:w-[170px]" value={timeFilter} onChange={(event) => setTimeFilter(event.target.value as typeof timeFilter)}>
                 {LEDGER_TIME_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
@@ -512,49 +489,40 @@ export default function LiveLedgerSection({ viewModel }: Props) {
                 ))}
               </select>
               <select
-                className="ui-input"
-                value={sideFilter}
-                onChange={(event) => setSideFilter(event.target.value as typeof sideFilter)}
-                disabled={gridSection === "funding"}
+                className="ui-input w-full min-w-[120px] xl:w-[120px]"
+                value={sortDirection}
+                aria-label="排序方向"
+                onChange={(event) => setSortDirection(event.target.value as typeof sortDirection)}
               >
-                {LEDGER_SIDE_OPTIONS.map((option) => (
+                {LEDGER_SORT_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
                   </option>
                 ))}
               </select>
-              <div className="flex items-center justify-end gap-2">
-                {gridSection === "closed" ? (
-                  <button
-                    type="button"
-                    className={`ui-tab ${realizedOnly ? "is-active" : ""}`}
-                    onClick={() => setRealizedOnly((current) => !current)}
-                  >
-                    只看有盈亏
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  className="ui-tab"
-                  onClick={() => {
-                    setGridSection("open");
-                    setTimeFilter("all");
-                    setSideFilter("all");
-                    setRealizedOnly(false);
-                    setSearchQuery("");
-                  }}
-                  disabled={!hasLedgerFilters}
-                >
-                  重置
-                </button>
-              </div>
+              <button
+                type="button"
+                className="ui-tab shrink-0"
+                onClick={() => {
+                  setTimeFilter("all");
+                  setSortDirection("desc");
+                  setSearchQuery("");
+                }}
+                disabled={!hasLedgerFilters}
+              >
+                重置
+              </button>
             </div>
           </div>
 
           <div className="overflow-hidden rounded border border-slate-700/60 bg-slate-900/20">
             {activeCount > 0 ? (
               <>
-                <div className="form-scroll max-h-[560px] overflow-auto" style={{ paddingRight: 0 }}>
+                <div
+                  className={`form-scroll max-h-[560px] overflow-auto ${ledgerScrollbarVisible ? "is-scrolling" : ""}`}
+                  style={{ paddingRight: 0 }}
+                  onScroll={showLedgerScrollbar}
+                >
                   {gridSection === "funding"
                     ? fundingTable(paginatedFundingRows)
                     : gridSection === "closed"

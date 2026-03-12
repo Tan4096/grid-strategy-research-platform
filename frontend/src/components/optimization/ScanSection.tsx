@@ -48,13 +48,13 @@ export default function ScanSection({
       onToggle={onToggle}
       summary={summary}
       right={
-        <div className="rounded border border-slate-700/60 bg-slate-950/50 px-2 py-1 text-right">
-          <p className="text-[11px] text-slate-400">{usesTrialBudget ? "参数空间" : "预计组合"}</p>
-          <p className="mono text-xs font-semibold text-slate-100">{estimatedCombinations}</p>
-          <p className="text-[11px] text-slate-500">
-            {usesTrialBudget ? "试验预算" : "执行"}: {sampledCombinations}
-          </p>
-        </div>
+        <p className="pt-0.5 text-right text-[11px] whitespace-nowrap text-slate-400">
+          {usesTrialBudget ? "参数空间" : "预计组合"}{" "}
+          <span className="mono font-semibold text-slate-200">{estimatedCombinations}</span>
+          {" · "}
+          {usesTrialBudget ? "试验预算" : "执行"}{" "}
+          <span className="mono font-semibold text-slate-200">{sampledCombinations}</span>
+        </p>
       }
     >
       {!usesTrialBudget && exceedsMax && shouldAutoSample && (

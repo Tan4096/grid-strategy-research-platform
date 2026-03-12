@@ -49,6 +49,12 @@ function Thrower({ shouldThrow }: { shouldThrow: boolean }) {
 describe("ErrorBoundary", () => {
   it("resets when resetKey changes", () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const swallowExpectedError = (event: ErrorEvent) => {
+      if (event.error instanceof Error && event.error.message === "boom") {
+        event.preventDefault();
+      }
+    };
+    window.addEventListener("error", swallowExpectedError);
     const mounted = mount(
       <ErrorBoundary fallbackMessage="fallback" resetKey="a">
         <Thrower shouldThrow />
@@ -65,5 +71,6 @@ describe("ErrorBoundary", () => {
 
     expect(mounted.container.textContent).toContain("ok");
     mounted.unmount();
+    window.removeEventListener("error", swallowExpectedError);
   });
 });

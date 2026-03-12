@@ -86,7 +86,7 @@ export default function LivePnlTrendSection({ viewModel }: Props) {
           label="总收益"
           value={`${fmt(robot.total_pnl ?? ledgerSummary.total_pnl)} USDT`}
           accent={(robot.total_pnl ?? ledgerSummary.total_pnl) >= 0 ? "text-emerald-300" : "text-rose-300"}
-          detail={`收益率 ${pct(robot.pnl_ratio)}${headline.pnl24h === null ? "" : ` · 近24h ${fmt(headline.pnl24h)} USDT`}`}
+          meta={`收益率 ${pct(robot.pnl_ratio)}${headline.pnl24h === null ? "" : ` · 近24h ${fmt(headline.pnl24h)} USDT`}`}
         />
         <DenseStat label="手续费" value={`${fmt(robot.total_fee ?? ledgerSummary.fees)} USDT`} />
         <DenseStat

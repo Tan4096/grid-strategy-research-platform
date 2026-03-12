@@ -7,6 +7,7 @@ interface Params {
   request: BacktestRequest;
   snapshot: LiveSnapshotResponse | null;
   windowDays?: number;
+  enabled?: boolean;
 }
 
 interface Result {
@@ -38,7 +39,12 @@ function buildRecentWindowRequest(request: BacktestRequest, snapshot: LiveSnapsh
 }
 
 
-export function useLiveMiniBacktest({ request, snapshot, windowDays = 30 }: Params): Result {
+export function useLiveMiniBacktest({
+  request,
+  snapshot,
+  windowDays = 30,
+  enabled = true
+}: Params): Result {
   const [result, setResult] = useState<BacktestResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -55,11 +61,12 @@ export function useLiveMiniBacktest({ request, snapshot, windowDays = 30 }: Para
   );
 
   useEffect(() => {
-    if (!alignedRequest || !signature) {
+    if (!enabled || !alignedRequest || !signature) {
       setResult(null);
       setLoading(false);
       setError(null);
       signatureRef.current = null;
+      runNonceRef.current += 1;
       return;
     }
     if (signatureRef.current === signature) {
@@ -89,7 +96,7 @@ export function useLiveMiniBacktest({ request, snapshot, windowDays = 30 }: Para
       });
 
     return () => controller.abort();
-  }, [alignedRequest, signature]);
+  }, [alignedRequest, enabled, signature]);
 
   return { result, loading, error };
 }

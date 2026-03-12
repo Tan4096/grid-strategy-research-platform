@@ -405,9 +405,16 @@ describe("useLiveTradingSync", () => {
       await hook.value.refresh();
     });
 
-    expect(notifyCenter).toHaveBeenCalledTimes(5);
-    expect(notifyCenter.mock.calls.every(([item]) => item.dismiss === true)).toBe(true);
-    expect(showToast).not.toHaveBeenCalled();
+    expect(notifyCenter).toHaveBeenCalledWith(expect.objectContaining({ id: "live-sync:fetch", dismiss: true }));
+    expect(showToast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "history",
+        category: "success",
+        action: "live_snapshot_manual_refresh",
+        title: "实盘数据已刷新",
+        source: "live_trading"
+      })
+    );
 
     await act(async () => {
       await hook.value.refresh();

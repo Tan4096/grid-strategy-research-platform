@@ -232,9 +232,9 @@ export function useLiveTradingSync({
     });
   }, [trendKey]);
 
-  const performRefresh = useCallback(async () => {
+  const performRefresh = useCallback(async (): Promise<boolean> => {
     if (!canRequest || loading) {
-      return;
+      return false;
     }
     controllerRef.current?.abort();
     const controller = new AbortController();
@@ -284,9 +284,10 @@ export function useLiveTradingSync({
         }
         showToast?.(item);
       });
+      return true;
     } catch (err) {
       if (controller.signal.aborted) {
-        return;
+        return false;
       }
       const info = getApiErrorInfo(err);
       setError(info.message);
@@ -311,6 +312,7 @@ export function useLiveTradingSync({
         retryable: info.retryable,
         source: "live_trading"
       });
+      return false;
     } finally {
       if (controllerRef.current === controller) {
         controllerRef.current = null;
@@ -337,8 +339,25 @@ export function useLiveTradingSync({
     onMonitoringEnabledChange?.(true);
     setAutoRefreshPaused(false);
     setAutoRefreshPausedReason(null);
-    await performRefresh();
-  }, [onMonitoringEnabledChange, performRefresh]);
+    const refreshed = await performRefresh();
+    if (!refreshed) {
+      return;
+    }
+    const latestFetchedAt = snapshotRef.current?.account.fetched_at ?? null;
+    showToast?.({
+      kind: "history",
+      category: "success",
+      action: "live_snapshot_manual_refresh",
+      title: "实盘数据已刷新",
+      detail: buildNoticeDetail(
+        symbol.trim().toUpperCase() || "实盘监测",
+        latestFetchedAt ? `已同步最新快照：${latestFetchedAt}` : "已同步最新快照",
+        NOTICE_ADVICE.watchRuntime
+      ),
+      status: "success",
+      source: "live_trading"
+    });
+  }, [onMonitoringEnabledChange, performRefresh, showToast, symbol]);
 
   const canAutoRefresh = Boolean(active && canRequest && monitoringEnabled && !autoRefreshPaused);
 
