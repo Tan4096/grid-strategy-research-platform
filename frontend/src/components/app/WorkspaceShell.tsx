@@ -59,7 +59,7 @@ export default function WorkspaceShell({
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-4 lg:items-start lg:grid-cols-[360px_minmax(0,1fr)]">
+        <div className="grid grid-cols-1 gap-4 lg:items-start lg:grid-cols-[390px_minmax(0,1fr)]">
           <div className="order-2 lg:order-1">
             {parameterPanelNode}
           </div>

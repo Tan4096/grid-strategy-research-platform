@@ -209,6 +209,9 @@ export default function App() {
   const liveConnectionMobileNode = (
     <LiveConnectionPanel {...workspaceViewModel.liveConnectionPanelProps} compact />
   );
+  const liveTradingPanelVisible = mobileMinimalLayoutEnabled
+    ? mobilePrimaryTab === "live"
+    : workspaceMode === "live";
 
   const liveTradingPanelNode = (
     <ErrorBoundary
@@ -219,6 +222,7 @@ export default function App() {
         <LiveTradingPanel
           {...workspaceViewModel.liveTradingPanelProps}
           connectionPanelNode={mobileMinimalLayoutEnabled ? liveConnectionMobileNode : undefined}
+          isVisible={liveTradingPanelVisible}
         />
       </Suspense>
     </ErrorBoundary>

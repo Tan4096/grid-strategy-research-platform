@@ -51,6 +51,19 @@ interface OpenLot {
 
 const EPSILON = 1e-9;
 
+function asPositiveFinite(value: number | null | undefined): number | null {
+  return value !== null && value !== undefined && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function resolveOpenGridReferencePrice(snapshot: LiveSnapshotResponse): number {
+  return (
+    asPositiveFinite(snapshot.market_params?.reference_price) ??
+    asPositiveFinite(snapshot.position.mark_price) ??
+    asPositiveFinite(snapshot.position.entry_price) ??
+    0
+  );
+}
+
 function normalizeDirection(snapshot: LiveSnapshotResponse): GridDirection {
   if (snapshot.robot.direction === "long" || snapshot.robot.direction === "short") {
     return snapshot.robot.direction;
@@ -68,9 +81,9 @@ function ascendingFills(fills: LiveFill[]): LiveFill[] {
   return [...fills].sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp));
 }
 
-function descendingFunding(entries: LiveFundingEntry[]): FundingLedgerRow[] {
+function ascendingFunding(entries: LiveFundingEntry[]): FundingLedgerRow[] {
   return [...entries]
-    .sort((left, right) => Date.parse(right.timestamp) - Date.parse(left.timestamp))
+    .sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp))
     .map((entry, index) => ({
       key: `${entry.timestamp}-${entry.amount}-${index}`,
       timestamp: entry.timestamp,
@@ -249,7 +262,7 @@ export function buildGridLedgerGroups(snapshot: LiveSnapshotResponse): {
   const spacing = gridSpacing(snapshot);
   const tolerance = priceTolerance(snapshot, spacing);
   const contractSize = contractSizeBase(snapshot);
-  const markPrice = snapshot.position.mark_price;
+  const markPrice = resolveOpenGridReferencePrice(snapshot);
   const openLots: OpenLot[] = [];
   const closedGroups: ClosedGridLedgerGroup[] = [];
 
@@ -439,9 +452,9 @@ export function buildGridLedgerGroups(snapshot: LiveSnapshotResponse): {
   const estimatedBaseLots = openGroups.filter((group) => group.source === "base_inferred").length;
 
   return {
-    closedGroups: closedGroups.sort((left, right) => Date.parse(right.closeLeg.fill.timestamp) - Date.parse(left.closeLeg.fill.timestamp)),
-    openGroups: openGroups.sort((left, right) => Date.parse(right.closeOrder?.timestamp ?? right.openLeg.fill.timestamp) - Date.parse(left.closeOrder?.timestamp ?? left.openLeg.fill.timestamp)),
-    fundingRows: descendingFunding(snapshot.funding_entries),
+    closedGroups: closedGroups.sort((left, right) => Date.parse(left.closeLeg.fill.timestamp) - Date.parse(right.closeLeg.fill.timestamp)),
+    openGroups: openGroups.sort((left, right) => Date.parse(left.closeOrder?.timestamp ?? left.openLeg.fill.timestamp) - Date.parse(right.closeOrder?.timestamp ?? right.openLeg.fill.timestamp)),
+    fundingRows: ascendingFunding(snapshot.funding_entries),
     estimatedBaseLots
   };
 }

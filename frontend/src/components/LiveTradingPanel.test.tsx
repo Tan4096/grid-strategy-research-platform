@@ -5,12 +5,16 @@ import { describe, expect, it, vi } from "vitest";
 import type { BacktestRequest, LiveSnapshotResponse } from "../lib/api-schema";
 import LiveTradingPanel from "./LiveTradingPanel";
 
-vi.mock("../hooks/live/useLiveMiniBacktest", () => ({
-  useLiveMiniBacktest: () => ({
+const { useLiveMiniBacktestSpy } = vi.hoisted(() => ({
+  useLiveMiniBacktestSpy: vi.fn(() => ({
     result: null,
     loading: false,
     error: null
-  })
+  }))
+}));
+
+vi.mock("../hooks/live/useLiveMiniBacktest", () => ({
+  useLiveMiniBacktest: useLiveMiniBacktestSpy
 }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -246,11 +250,12 @@ describe("LiveTradingPanel", () => {
     expect(text).toContain("距止损距离");
     expect(text).toContain("持仓网格数");
     expect(text).toContain("自动刷新运行中");
-    expect(text).toContain("当前价 70100.00 · 止损价 66000.00");
+    expect(text).not.toContain("最近刷新");
     expect(text.indexOf("持仓网格数")).toBeLessThan(text.indexOf("距止损距离"));
     expect(text.indexOf("距止损距离")).toBeLessThan(text.indexOf("总收益"));
     expect(text.indexOf("总收益")).toBeLessThan(text.indexOf("最大回撤"));
-    expect(text).toContain("当前价格");
+    expect(text).toContain("当前价格70100.00");
+    expect(text).toContain("止损价66000.00");
     expect(text).toContain("收益率曲线");
     expect(text).toContain("回撤曲线");
     expect(text).toContain("实盘曲线");
@@ -258,6 +263,7 @@ describe("LiveTradingPanel", () => {
     expect(text).toContain(" · 最大 ");
     expect(text).toContain("区间");
     expect(text).toContain("起点 ");
+    expect(text).toContain("刷新");
     expect(text).toContain("回填到左侧参数");
     expect(text).not.toContain("监测详情");
     expect(text).not.toContain("回测对比");
@@ -267,6 +273,70 @@ describe("LiveTradingPanel", () => {
     cardTitles.forEach((title) => {
       expect(mounted.container.textContent ?? "").toContain(title);
     });
+
+    mounted.unmount();
+  });
+
+  it("triggers immediate refresh from overview refresh button", () => {
+    const onRefresh = vi.fn();
+    const mounted = mount(
+      <LiveTradingPanel
+        request={request}
+        backtestResult={null}
+        snapshot={snapshot}
+        loading={false}
+        error={null}
+        monitoringActive
+        autoRefreshPaused={false}
+        autoRefreshPausedReason={null}
+        nextRefreshAt={Date.now() + 15_000}
+        trend={[]}
+        onRefresh={onRefresh}
+        onApplyParameters={() => undefined}
+        onApplyEnvironment={() => undefined}
+        onApplyInferredGrid={() => undefined}
+        onRunBacktest={() => undefined}
+        onApplySuggestedWindow={() => undefined}
+        onStopMonitoring={() => undefined}
+      />
+    );
+
+    const refreshButton = Array.from(mounted.container.querySelectorAll("button")).find((node) => node.textContent?.trim() === "刷新");
+    expect(refreshButton).toBeTruthy();
+    act(() => {
+      refreshButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+
+    mounted.unmount();
+  });
+
+  it("shows loading state on overview refresh button while syncing", () => {
+    const mounted = mount(
+      <LiveTradingPanel
+        request={request}
+        backtestResult={null}
+        snapshot={snapshot}
+        loading
+        error={null}
+        monitoringActive
+        autoRefreshPaused={false}
+        autoRefreshPausedReason={null}
+        nextRefreshAt={Date.now() + 15_000}
+        trend={[]}
+        onRefresh={() => undefined}
+        onApplyParameters={() => undefined}
+        onApplyEnvironment={() => undefined}
+        onApplyInferredGrid={() => undefined}
+        onRunBacktest={() => undefined}
+        onApplySuggestedWindow={() => undefined}
+        onStopMonitoring={() => undefined}
+      />
+    );
+
+    const refreshButton = Array.from(mounted.container.querySelectorAll("button")).find((node) => node.textContent?.trim() === "刷新中...");
+    expect(refreshButton).toBeTruthy();
+    expect((refreshButton as HTMLButtonElement | null)?.disabled).toBe(true);
 
     mounted.unmount();
   });
@@ -402,7 +472,8 @@ describe("LiveTradingPanel", () => {
     const text = mounted.container.textContent ?? "";
     expect(text).toContain("持仓网格数");
     expect(text).toContain("2 格");
-    expect(text).toContain("当前持仓 2 格 · 单格 0.0108 BTC");
+    expect(text).toContain("单格下单量（BTC）0.0108");
+    expect(text).toContain("持仓网格数2 格");
 
     mounted.unmount();
   });
@@ -475,7 +546,8 @@ describe("LiveTradingPanel", () => {
     const text = mounted.container.textContent ?? "";
     expect(text).toContain("持仓网格数");
     expect(text).toContain("1 格");
-    expect(text).toContain("当前持仓 1 格 · 单格 0.0108 BTC");
+    expect(text).toContain("单格下单量（BTC）0.0108");
+    expect(text).toContain("持仓网格数1 格");
 
     mounted.unmount();
   });
@@ -545,7 +617,8 @@ describe("LiveTradingPanel", () => {
     const text = mounted.container.textContent ?? "";
     expect(text).toContain("持仓网格数");
     expect(text).toContain("7 格");
-    expect(text).toContain("当前持仓 7 格 · 单格 0.0108 BTC");
+    expect(text).toContain("单格下单量（BTC）0.0108");
+    expect(text).toContain("持仓网格数7 格");
 
     mounted.unmount();
   });
@@ -732,8 +805,47 @@ describe("LiveTradingPanel", () => {
 
     const text = mounted.container.textContent ?? "";
     expect(text).toContain("未平仓网格");
-    expect(text).toContain("当前数量可能偏保守");
+    expect(text).toContain("数据缺口：成交明细未完整；");
+    expect(text).toContain("当前筛选条件下没有账单。");
     expect(text).not.toContain("当前没有按日汇总账单。");
+
+    mounted.unmount();
+  });
+
+  it("passes hidden visibility state into the mini backtest hook", () => {
+    useLiveMiniBacktestSpy.mockClear();
+
+    const mounted = mount(
+      <LiveTradingPanel
+        request={request}
+        backtestResult={null}
+        snapshot={snapshot}
+        loading={false}
+        error={null}
+        monitoringActive
+        autoRefreshPaused={false}
+        autoRefreshPausedReason={null}
+        nextRefreshAt={Date.now() + 15_000}
+        trend={[]}
+        onRefresh={() => undefined}
+        onApplyParameters={() => undefined}
+        onApplyEnvironment={() => undefined}
+        onApplyInferredGrid={() => undefined}
+        onRunBacktest={() => undefined}
+        onApplySuggestedWindow={() => undefined}
+        onStopMonitoring={() => undefined}
+        isVisible={false}
+      />
+    );
+
+    expect(useLiveMiniBacktestSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        request,
+        snapshot,
+        windowDays: 30,
+        enabled: false
+      })
+    );
 
     mounted.unmount();
   });

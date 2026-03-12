@@ -71,12 +71,15 @@ export default function LiveRiskConfigSection({
   return (
     <section className="card p-2.5 sm:p-3">
       <h3 className="text-sm font-semibold text-slate-100">风险与配置</h3>
-      <div className="mt-3 grid gap-4 xl:grid-cols-2">
-        <div className="rounded border border-slate-700/60 bg-slate-900/30 p-3">
-          <p className="text-xs uppercase tracking-wide text-slate-400">风险</p>
-          <div className="mt-3 grid gap-3 md:grid-cols-2">
+      <div className="mt-3 grid gap-3 xl:grid-cols-2">
+        <div className="rounded border border-slate-700/60 bg-slate-900/30 p-2.5">
+          <div className="flex min-h-[28px] items-center">
+            <p className="text-xs uppercase tracking-wide text-slate-400">风险</p>
+          </div>
+          <div className="mt-2.5 grid gap-2.5 md:grid-cols-2">
             <DenseStat
               uniformHeight
+              compact
               label="距强平"
               value={headline.liquidationDistancePct === null ? "--" : `${headline.liquidationDistancePct.toFixed(2)}%`}
               accent={riskToneClass(headline.liquidationDistancePct)}
@@ -85,27 +88,29 @@ export default function LiveRiskConfigSection({
             />
             <DenseStat
               uniformHeight
+              compact
               label="止损距离"
               value={headline.stopDistancePct === null ? "--" : `${headline.stopDistancePct.toFixed(2)}%`}
               accent={riskToneClass(headline.stopDistancePct)}
               emphasis
               tone={riskToneKey(headline.stopDistancePct)}
             />
-            <DenseStat uniformHeight label="配置杠杆" value={fmt(robot.configured_leverage)} />
-            <DenseStat uniformHeight label="实际杠杆" value={fmt(robot.actual_leverage)} />
-            <DenseStat uniformHeight label="当前价格" value={fmt(currentPrice)} />
+            <DenseStat uniformHeight compact label="配置杠杆" value={fmt(robot.configured_leverage)} />
+            <DenseStat uniformHeight compact label="实际杠杆" value={fmt(robot.actual_leverage)} />
+            <DenseStat uniformHeight compact label="当前价格" value={fmt(currentPrice)} />
             <DenseStat
               uniformHeight
+              compact
               label="强平价格"
               value={fmt(pickPositiveValue(robot.liquidation_price, snapshot.position.liquidation_price))}
             />
-            <DenseStat uniformHeight label="止损价" value={fmt(pickPositiveValue(robot.stop_loss_price))} />
-            <DenseStat uniformHeight label="止盈价" value={fmt(robot.take_profit_price)} />
+            <DenseStat uniformHeight compact label="止损价" value={fmt(pickPositiveValue(robot.stop_loss_price))} />
+            <DenseStat uniformHeight compact label="止盈价" value={fmt(robot.take_profit_price)} />
           </div>
         </div>
 
-        <div className="rounded border border-slate-700/60 bg-slate-900/30 p-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="rounded border border-slate-700/60 bg-slate-900/30 p-2.5">
+          <div className="flex min-h-[28px] flex-wrap items-center justify-between gap-2">
             <p className="text-xs uppercase tracking-wide text-slate-400">配置</p>
             <div className="flex flex-wrap gap-2">
               <RobotBadge label={directionBadge.label} tone={directionBadge.tone} />
@@ -113,19 +118,20 @@ export default function LiveRiskConfigSection({
               <RobotBadge label={robot.use_base_position == null ? "基仓未知" : robot.use_base_position ? "已启用基仓" : "未启用基仓"} tone={robot.use_base_position ? "amber" : "gray"} />
             </div>
           </div>
-          <div className="mt-3 grid gap-3 md:grid-cols-2">
-            <DenseStat uniformHeight label="区间下限" value={fmt(robot.lower_price ?? snapshot.inferred_grid.lower)} />
-            <DenseStat uniformHeight label="区间上限" value={fmt(robot.upper_price ?? snapshot.inferred_grid.upper)} />
-            <DenseStat uniformHeight label="网格数" value={fmt(robot.grid_count ?? snapshot.inferred_grid.grid_count, 0)} />
-            <DenseStat uniformHeight label="格距" value={fmt(robot.grid_spacing ?? snapshot.inferred_grid.grid_spacing, 4)} />
+          <div className="mt-2.5 grid gap-2.5 md:grid-cols-2">
+            <DenseStat uniformHeight compact label="区间下限" value={fmt(robot.lower_price ?? snapshot.inferred_grid.lower)} />
+            <DenseStat uniformHeight compact label="区间上限" value={fmt(robot.upper_price ?? snapshot.inferred_grid.upper)} />
+            <DenseStat uniformHeight compact label="网格数" value={fmt(robot.grid_count ?? snapshot.inferred_grid.grid_count, 0)} />
+            <DenseStat uniformHeight compact label="格距" value={fmt(robot.grid_spacing ?? snapshot.inferred_grid.grid_spacing, 4)} />
             <DenseStat
               uniformHeight
+              compact
               label={singleAmountBase !== null ? `单格下单量（${baseAssetSymbol}）` : "单格下单量"}
               value={singleAmountBase !== null ? fmtAssetAmount(singleAmountBase) : fmt(robot.single_amount)}
             />
-            <DenseStat uniformHeight label="持仓网格数" value={fmtGridCount(heldGridCount)} />
-            <DenseStat uniformHeight label="买单层" value={`${buyLevels.length} 层`} />
-            <DenseStat uniformHeight label="卖单层" value={`${sellLevels.length} 层`} />
+            <DenseStat uniformHeight compact label="持仓网格数" value={fmtGridCount(heldGridCount)} />
+            <DenseStat uniformHeight compact label="买单层" value={`${buyLevels.length} 层`} />
+            <DenseStat uniformHeight compact label="卖单层" value={`${sellLevels.length} 层`} />
           </div>
         </div>
 

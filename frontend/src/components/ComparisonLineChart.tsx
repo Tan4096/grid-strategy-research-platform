@@ -390,6 +390,19 @@ export default function ComparisonLineChart({
   const candidateAreaPath = buildAreaPath(candidateValues, projectX, projectY, baselineY);
   const baseGradientId = useId();
   const candidateGradientId = useId();
+  const isReturnRateChart = yAxisLabel === "收益率";
+  const zeroAxisY = (() => {
+    if (!isReturnRateChart) {
+      return null;
+    }
+    const valueRange = maxValue - minValue;
+    if (!Number.isFinite(valueRange) || Math.abs(valueRange) < 1e-9) {
+      return minValue >= 0 ? baselineY : paddingTop;
+    }
+    const normalized = (0 - minValue) / valueRange;
+    const projected = paddingTop + (1 - normalized) * innerHeight;
+    return clamp(projected, paddingTop, baselineY);
+  })();
 
   return (
     <div ref={containerRef} className="card fade-up p-3">
@@ -443,6 +456,17 @@ export default function ComparisonLineChart({
               strokeWidth={1}
             />
           ))}
+          {zeroAxisY !== null ? (
+            <line
+              x1={chartLeft}
+              x2={chartRight}
+              y1={zeroAxisY}
+              y2={zeroAxisY}
+              stroke="rgba(148,163,184,0.62)"
+              strokeWidth={1}
+              strokeDasharray="6 4"
+            />
+          ) : null}
           <line x1={chartLeft} x2={chartLeft} y1={paddingTop} y2={baselineY} stroke="#334155" strokeWidth={1} />
           <line x1={chartLeft} x2={chartRight} y1={baselineY} y2={baselineY} stroke="#334155" strokeWidth={1} />
 

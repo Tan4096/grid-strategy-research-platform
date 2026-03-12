@@ -214,4 +214,35 @@ describe("buildGridLedgerGroups", () => {
     expect(grouped.closedGroups[0]?.closeLeg.fill.trade_id).toBe("close-1");
     expect(grouped.openGroups).toHaveLength(0);
   });
+
+  it("uses current reference price for open-grid unrealized pnl when available", () => {
+    const mutated: LiveSnapshotResponse = {
+      ...snapshot,
+      market_params: {
+        source: "okx",
+        symbol: "BTCUSDT",
+        maker_fee_rate: 0.0002,
+        taker_fee_rate: 0.0005,
+        funding_rate_per_8h: 0,
+        funding_interval_hours: 8,
+        price_tick_size: 0.1,
+        quantity_step_size: 0.0001,
+        contract_size_base: 1,
+        min_notional: 5,
+        reference_price: 103,
+        fetched_at: "2026-03-11T10:00:00+08:00",
+        note: null
+      },
+      position: {
+        ...snapshot.position,
+        mark_price: 99
+      }
+    };
+
+    const grouped = buildGridLedgerGroups(mutated);
+
+    expect(grouped.openGroups).toHaveLength(1);
+    expect(grouped.openGroups[0]?.unrealizedPnl).toBeCloseTo(4);
+    expect(grouped.openGroups[0]?.netPnl).toBeCloseTo(3.9);
+  });
 });

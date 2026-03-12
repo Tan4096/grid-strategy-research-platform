@@ -76,6 +76,7 @@ const snapshot: LiveSnapshotResponse = {
 
 describe("useLiveMiniBacktest", () => {
   it("runs a hidden live-aligned backtest and stores candles locally", async () => {
+    vi.mocked(runBacktest).mockClear();
     const hook = renderHook(() => useLiveMiniBacktest({ request, snapshot }));
 
     await act(async () => {
@@ -89,5 +90,20 @@ describe("useLiveMiniBacktest", () => {
     expect(calledRequest?.data.start_time).toBe("2026-02-05T02:56:00.000Z");
     expect(hook.value.result?.candles).toHaveLength(1);
     expect(hook.value.loading).toBe(false);
+  });
+
+  it("skips the hidden backtest when disabled", async () => {
+    vi.mocked(runBacktest).mockClear();
+    const hook = renderHook(() => useLiveMiniBacktest({ request, snapshot, enabled: false }));
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(runBacktest).not.toHaveBeenCalled();
+    expect(hook.value.result).toBeNull();
+    expect(hook.value.loading).toBe(false);
+    expect(hook.value.error).toBeNull();
   });
 });

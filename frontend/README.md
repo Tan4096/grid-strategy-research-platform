@@ -15,10 +15,13 @@ English: This file is for frontend contributors. Start with the root `README.md`
 ## Local Run
 
 ```bash
+make doctor
 cd frontend
 npm ci
 npm run dev
 ```
+
+先确认当前环境是 Node `20.x`，再执行一次干净的 `npm ci`。
 
 ## Common Commands
 

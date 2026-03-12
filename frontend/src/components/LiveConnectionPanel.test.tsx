@@ -119,6 +119,7 @@ describe("LiveConnectionPanel", () => {
     expect(text).toContain("共享设备请勿启用");
     expect(text).toContain("清空凭证");
     expect(text).toContain("收起凭证");
+    expect(text).toContain("当前对象 · algoId go-123");
     expect(text).toContain("API Key");
     expect(text).toContain("监测对象 (algoId)");
     expect(text).toContain("请选择机器人");

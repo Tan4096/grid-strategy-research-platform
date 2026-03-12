@@ -34,20 +34,14 @@ interface Props {
 }
 
 function formatRobotSummary(item: LiveRobotListItem): string {
-  const stateLabel =
-    item.state === "running" ? "运行中" : item.state === "stopped" ? "已停止" : item.state ?? "状态未知";
-  const pieces = [item.name, item.side === "short" ? "做空" : item.side === "long" ? "做多" : "方向未知", stateLabel];
-  if (item.updated_at) {
-    pieces.push(
-      new Date(item.updated_at).toLocaleString("zh-CN", {
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit"
-      })
-    );
+  const shortAlgoId = item.algo_id ? item.algo_id.slice(-6) : "";
+  if (shortAlgoId) {
+    return `algoId ${shortAlgoId}`;
   }
-  return pieces.join(" · ");
+  if (item.algo_id) {
+    return `algoId ${item.algo_id}`;
+  }
+  return item.name || "未命名对象";
 }
 
 function readCredentialsExpandedPreference(): boolean {
@@ -118,6 +112,8 @@ export default function LiveConnectionPanel({
     () => robotItems.find((item) => item.algo_id === draft.algo_id) ?? null,
     [draft.algo_id, robotItems]
   );
+  const selectedRobotSummary = selectedRobot ? formatRobotSummary(selectedRobot) : null;
+  const selectedRobotTag = credentialsReady ? selectedRobotSummary : null;
   const filteredRobotItems = useMemo(() => {
     const normalizedSymbol = symbol.trim().toUpperCase();
     if (!normalizedSymbol) {
@@ -135,8 +131,8 @@ export default function LiveConnectionPanel({
         ? "实盘监测目前仅支持 OKX。"
         : !credentialsReady
           ? "填写 OKX 凭证后请选择要监测的 OKX 机器人。"
-          : selectedRobot
-            ? `当前对象：${formatRobotSummary(selectedRobot)}`
+          : selectedRobotTag
+            ? null
             : robotListLoading
               ? "正在读取当前环境下的监测对象。"
               : strategyStartedAt
@@ -159,10 +155,10 @@ export default function LiveConnectionPanel({
 
   return (
     <section className={cardClass}>
-      <div className="flex flex-wrap items-start justify-between gap-2">
+      <div className="flex flex-wrap items-start justify-between gap-1.5">
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-slate-100">监测连接</p>
-          <div className="mt-1 flex flex-wrap items-center gap-2">
+          <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
             <h2 className="text-sm font-semibold text-slate-100">OKX 凭证</h2>
             <span className="rounded border border-slate-700/70 bg-slate-900/40 px-2 py-0.5 text-[11px] text-slate-300">
               {exchangeLabel} · {symbolLabel}
@@ -172,8 +168,13 @@ export default function LiveConnectionPanel({
             ) : (
               <span className="rounded border border-slate-700/70 bg-slate-900/40 px-2 py-0.5 text-[11px] text-slate-400">未配置</span>
             )}
+            {selectedRobotTag ? (
+              <span className="rounded border border-cyan-400/35 bg-cyan-500/10 px-2 py-0.5 text-[11px] text-cyan-200">
+                当前对象 · {selectedRobotTag}
+              </span>
+            ) : null}
           </div>
-          <p className={`mt-1 text-xs ${panelNoteTone}`}>{panelNote}</p>
+          {panelNote ? <p className={`mt-1 text-xs ${panelNoteTone}`}>{panelNote}</p> : null}
         </div>
         <button
           type="button"

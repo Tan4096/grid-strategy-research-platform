@@ -5,7 +5,7 @@ import type {
   LiveMonitoringRiskLevel
 } from "../../lib/liveMonitoringUx";
 
-export type LedgerView = "summary" | "daily" | "ledger";
+export type LedgerView = "daily" | "ledger";
 export type LedgerKindFilter = "all" | LiveLedgerEntry["kind"];
 export type LedgerSideFilter = "all" | "buy" | "sell";
 export type LedgerMakerFilter = "all" | "maker" | "taker";
@@ -44,12 +44,8 @@ export function formatDurationSeconds(totalSeconds: number | null | undefined): 
     return "--";
   }
   const seconds = Math.max(0, Math.round(totalSeconds));
-  if (seconds < 60) {
-    return `${seconds}s`;
-  }
-  const minutes = Math.floor(seconds / 60);
-  const remain = seconds % 60;
-  return `${minutes}m ${remain}s`;
+  const hours = seconds / 3600;
+  return `${hours.toFixed(2).replace(/\.?0+$/, "")}h`;
 }
 
 export function resolveBaseAssetSymbol(symbol: string, exchangeSymbol: string): string {
@@ -202,22 +198,24 @@ export function MetricCard({
   value,
   accent = "text-slate-100",
   meta,
-  detail
+  detail,
+  compact = false
 }: {
   label: string;
   value: string;
   accent?: string;
   meta?: string;
   detail?: string;
+  compact?: boolean;
 }) {
   return (
-    <div className="card-sub flex min-h-[96px] flex-col justify-between border border-slate-700/60 bg-slate-900/30 p-3">
+    <div className={`card-sub flex flex-col border border-slate-700/60 bg-slate-900/30 ${compact ? "min-h-[72px] gap-1.5 px-2.5 py-2" : "min-h-[96px] justify-between p-3"}`}>
       <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-xs uppercase tracking-wide text-slate-400">
         <span>{label}</span>
         {meta ? <span className="normal-case tracking-normal text-[11px] text-slate-500">{meta}</span> : null}
       </div>
-      <div className={`mt-2 text-lg font-semibold ${accent}`}>{value}</div>
-      {detail ? <div className="mt-1 text-xs text-slate-400">{detail}</div> : null}
+      <div className={`${compact ? "text-base leading-tight" : "mt-2 text-lg"} font-semibold ${accent}`}>{value}</div>
+      {detail ? <div className={`${compact ? "mt-0.5 text-[11px]" : "mt-1 text-xs"} text-slate-400`}>{detail}</div> : null}
     </div>
   );
 }
@@ -227,17 +225,21 @@ export function DenseStat({
   value,
   accent = "text-slate-100",
   emphasis = false,
+  meta,
   detail,
   tone = "neutral",
-  uniformHeight = false
+  uniformHeight = false,
+  compact = false
 }: {
   label: string;
   value: string;
   accent?: string;
   emphasis?: boolean;
+  meta?: string;
   detail?: string;
   tone?: "neutral" | "green" | "amber" | "red";
   uniformHeight?: boolean;
+  compact?: boolean;
 }) {
   const toneClass =
     tone === "green"
@@ -248,10 +250,21 @@ export function DenseStat({
           ? "border-rose-400/35 bg-rose-500/10"
           : "border-slate-700/60 bg-slate-950/30";
   return (
-    <div className={`rounded border ${uniformHeight ? "flex min-h-[68px] h-full flex-col px-3 py-1.5" : "px-3 py-2"} ${toneClass}`}>
-      <div className="text-[11px] uppercase tracking-wide text-slate-400">{label}</div>
-      <div className={`${emphasis ? "mt-1.5 text-xl" : "mt-1 text-sm"} font-semibold ${accent}`}>{value}</div>
-      {detail ? <div className="mt-1 text-[11px] text-slate-500">{detail}</div> : null}
+    <div className={`rounded border ${
+      uniformHeight
+        ? compact
+          ? "flex min-h-[58px] h-full flex-col px-2.5 py-1.5"
+          : "flex min-h-[68px] h-full flex-col px-3 py-1.5"
+        : compact
+          ? "px-2.5 py-1.5"
+          : "px-3 py-2"
+    } ${toneClass}`}>
+      <div className="flex items-center justify-between gap-2">
+        <div className={`${compact ? "text-[10px]" : "text-[11px]"} uppercase tracking-wide text-slate-400`}>{label}</div>
+        {meta ? <div className="max-w-[70%] truncate text-right text-[10px] text-slate-500">{meta}</div> : null}
+      </div>
+      <div className={`${emphasis ? (compact ? "mt-1 text-lg" : "mt-1.5 text-xl") : compact ? "mt-0.5 text-sm" : "mt-1 text-sm"} font-semibold ${accent}`}>{value}</div>
+      {detail ? <div className={`${compact ? "mt-0.5 text-[10px]" : "mt-1 text-[11px]"} text-slate-500`}>{detail}</div> : null}
     </div>
   );
 }

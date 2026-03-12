@@ -254,6 +254,20 @@ export default function LineChart({
   if (!chart) {
     return <StateBlock variant="empty" message="暂无曲线数据" minHeight={resolvedHeight} />;
   }
+  const isReturnRateChart = yAxisLabel === "收益率";
+  const zeroAxisY = (() => {
+    if (!isReturnRateChart) {
+      return null;
+    }
+    const range = chart.maxValue - chart.minValue;
+    if (!Number.isFinite(range) || Math.abs(range) < 1e-9) {
+      return chart.latest >= 0 ? chart.baselineY : chart.paddingTop;
+    }
+    const innerHeight = chart.baselineY - chart.paddingTop;
+    const normalized = (0 - chart.minValue) / range;
+    const projected = chart.paddingTop + (1 - normalized) * innerHeight;
+    return clamp(projected, chart.paddingTop, chart.baselineY);
+  })();
 
   return (
     <div ref={containerRef} className={`card fade-up ${tight ? "p-2" : compact ? "p-2 sm:p-2.5" : "p-2.5 sm:p-3"}`}>
@@ -314,6 +328,17 @@ export default function LineChart({
               strokeWidth={1}
             />
           ))}
+          {zeroAxisY !== null ? (
+            <line
+              x1={chart.chartLeft}
+              x2={chart.chartRight}
+              y1={zeroAxisY}
+              y2={zeroAxisY}
+              stroke="rgba(148,163,184,0.62)"
+              strokeWidth={1}
+              strokeDasharray="6 4"
+            />
+          ) : null}
 
           <line
             x1={chart.chartLeft}
