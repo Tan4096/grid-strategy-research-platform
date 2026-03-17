@@ -17,6 +17,9 @@ BACKEND_REQ_HASH_FILE="$BACKEND_VENV/.requirements.sha256"
 FRONTEND_LOCK_HASH_FILE="$FRONTEND_DIR/node_modules/.package-lock.sha256"
 EXPECTED_PYTHON_VERSION="3.11"
 EXPECTED_NODE_MAJOR="20"
+PYTHON_CMD=""
+NODE_CMD=""
+NPM_CMD=""
 
 BACKEND_PID=""
 FRONTEND_PID=""
@@ -211,25 +214,7 @@ PY
 }
 
 node_major_version() {
-  node -p 'process.versions.node.split(".")[0]'
-}
-
-ensure_supported_python() {
-  local version
-  version="$(python_version_short python3)"
-  if [[ "$version" != "$EXPECTED_PYTHON_VERSION" ]]; then
-    echo "python3 must be ${EXPECTED_PYTHON_VERSION}.x, found ${version}. Please switch python3 to Python ${EXPECTED_PYTHON_VERSION} before running ${SCRIPT_NAME}." >&2
-    exit 1
-  fi
-}
-
-ensure_supported_node() {
-  local major
-  major="$(node_major_version)"
-  if [[ "$major" != "$EXPECTED_NODE_MAJOR" ]]; then
-    echo "node must be ${EXPECTED_NODE_MAJOR}.x, found $(node -v). Please switch to Node ${EXPECTED_NODE_MAJOR} before running ${SCRIPT_NAME}." >&2
-    exit 1
-  fi
+  "$1" -p 'process.versions.node.split(".")[0]'
 }
 
 ensure_backend_venv_python() {
@@ -239,6 +224,77 @@ ensure_backend_venv_python() {
     echo "Backend virtualenv uses Python ${version}, expected ${EXPECTED_PYTHON_VERSION}. Remove backend/.venv and rerun ${SCRIPT_NAME} with Python ${EXPECTED_PYTHON_VERSION}." >&2
     exit 1
   fi
+}
+
+resolve_python_cmd() {
+  local candidate version
+  local -a candidates=()
+
+  if [[ -n "${DEV_PYTHON:-}" ]]; then
+    candidates+=("${DEV_PYTHON}")
+  fi
+  candidates+=("python3" "python3.11")
+
+  for candidate in "${candidates[@]}"; do
+    if ! command -v "$candidate" >/dev/null 2>&1; then
+      continue
+    fi
+    version="$(python_version_short "$candidate" 2>/dev/null || true)"
+    if [[ "$version" == "$EXPECTED_PYTHON_VERSION" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+resolve_node_cmd() {
+  local candidate major
+  local -a candidates=()
+
+  if [[ -n "${DEV_NODE:-}" ]]; then
+    candidates+=("${DEV_NODE}")
+  fi
+  candidates+=("node" "/opt/homebrew/opt/node@20/bin/node")
+
+  for candidate in "${candidates[@]}"; do
+    if [[ "$candidate" == /* ]]; then
+      [[ -x "$candidate" ]] || continue
+    else
+      command -v "$candidate" >/dev/null 2>&1 || continue
+    fi
+    major="$(node_major_version "$candidate" 2>/dev/null || true)"
+    if [[ "$major" == "$EXPECTED_NODE_MAJOR" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+resolve_npm_cmd() {
+  local node_cmd="$1"
+  local candidate
+
+  if [[ -n "${DEV_NPM:-}" ]] && command -v "${DEV_NPM}" >/dev/null 2>&1; then
+    printf '%s\n' "${DEV_NPM}"
+    return 0
+  fi
+
+  candidate="$(dirname "$node_cmd")/npm"
+  if [[ -x "$candidate" ]]; then
+    printf '%s\n' "$candidate"
+    return 0
+  fi
+
+  if command -v npm >/dev/null 2>&1; then
+    printf '%s\n' "npm"
+    return 0
+  fi
+
+  return 1
 }
 
 cleanup() {
@@ -253,11 +309,23 @@ cleanup() {
 
 trap cleanup EXIT INT TERM
 
-require_cmd python3
-require_cmd node
-require_cmd npm
-ensure_supported_python
-ensure_supported_node
+PYTHON_CMD="$(resolve_python_cmd || true)"
+if [[ -z "$PYTHON_CMD" ]]; then
+  echo "Could not find Python ${EXPECTED_PYTHON_VERSION}.x. Install Python ${EXPECTED_PYTHON_VERSION} and retry ${SCRIPT_NAME}." >&2
+  exit 1
+fi
+
+NODE_CMD="$(resolve_node_cmd || true)"
+if [[ -z "$NODE_CMD" ]]; then
+  echo "Could not find Node ${EXPECTED_NODE_MAJOR}.x. Install Node ${EXPECTED_NODE_MAJOR} and retry ${SCRIPT_NAME}." >&2
+  exit 1
+fi
+
+NPM_CMD="$(resolve_npm_cmd "$NODE_CMD" || true)"
+if [[ -z "$NPM_CMD" ]]; then
+  echo "Could not find npm matching Node ${EXPECTED_NODE_MAJOR}.x. Install npm and retry ${SCRIPT_NAME}." >&2
+  exit 1
+fi
 
 LAN_IP_DETECTED="$(detect_lan_ip || true)"
 if [[ -z "$LAN_IP_DETECTED" ]]; then
@@ -275,14 +343,14 @@ fi
 
 if [[ ! -d "$BACKEND_VENV" ]]; then
   log "Creating backend virtualenv..."
-  python3 -m venv "$BACKEND_VENV"
+  "$PYTHON_CMD" -m venv "$BACKEND_VENV"
 fi
 
 BACKEND_PYTHON="$(resolve_backend_python || true)"
 if [[ -z "$BACKEND_PYTHON" ]] || ! "$BACKEND_PYTHON" -c 'import sys' >/dev/null 2>&1; then
   log "Detected broken backend virtualenv (project path may have changed), recreating..."
   rm -rf "$BACKEND_VENV"
-  python3 -m venv "$BACKEND_VENV"
+  "$PYTHON_CMD" -m venv "$BACKEND_VENV"
   BACKEND_PYTHON="$(resolve_backend_python || true)"
 fi
 
@@ -296,7 +364,7 @@ ensure_backend_venv_python "$BACKEND_PYTHON"
 if command -v shasum >/dev/null 2>&1; then
   BACKEND_REQ_HASH="$(shasum -a 256 "$BACKEND_DIR/requirements.txt" | awk '{print $1}')"
 else
-  BACKEND_REQ_HASH="$(python3 - <<PY
+  BACKEND_REQ_HASH="$("$PYTHON_CMD" - <<PY
 import hashlib
 from pathlib import Path
 path = Path(r"$BACKEND_DIR/requirements.txt")
@@ -362,7 +430,7 @@ fi
 
 if [[ "$NEEDS_FRONTEND_INSTALL" -eq 1 ]]; then
   log "Installing frontend dependencies with npm ci..."
-  (cd "$FRONTEND_DIR" && npm ci)
+  (cd "$FRONTEND_DIR" && "$NPM_CMD" ci)
   printf '%s\n' "$FRONTEND_LOCK_HASH" > "$FRONTEND_LOCK_HASH_FILE"
 fi
 
@@ -402,7 +470,7 @@ log "Starting frontend on http://${FRONTEND_HOST}:${FRONTEND_PORT}"
 (
   cd "$FRONTEND_DIR"
   export VITE_API_BASE="$EFFECTIVE_VITE_API_BASE"
-  exec npm run dev -- --host "$FRONTEND_HOST" --port "$FRONTEND_PORT"
+  exec "$NPM_CMD" run dev -- --host "$FRONTEND_HOST" --port "$FRONTEND_PORT"
 ) &
 FRONTEND_PID=$!
 
