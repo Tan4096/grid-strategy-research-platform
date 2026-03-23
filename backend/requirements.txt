@@ -12,5 +12,5 @@ arq==0.27.0
 redis==5.0.8
 pydantic-settings==2.13.1
 mypy==1.19.1
-ruff==0.15.5
+ruff==0.15.7
 types-requests==2.32.0.20240914
