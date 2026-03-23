@@ -13,4 +13,4 @@ redis==5.0.8
 pydantic-settings==2.13.1
 mypy==1.19.1
 ruff==0.15.5
-types-requests==2.32.0.20240914
+types-requests==2.32.4.20260107
