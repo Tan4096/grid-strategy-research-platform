@@ -11,6 +11,7 @@ import {
 } from "../lib/api";
 import { persistLastRunStrategyTemplate } from "../lib/exampleTemplateResolver";
 import { NOTICE_ADVICE, buildJobLabel, buildNoticeDetail } from "../lib/notificationCopy";
+import { nowMs } from "../lib/time";
 import type { JobTransportMode } from "../types";
 import type { BacktestRequest, BacktestResponse, BacktestStatusResponse } from "../lib/api-schema";
 import type { EmitOperationEventInput } from "./useOperationFeedback";
@@ -58,7 +59,7 @@ function normalizePersistedBacktestJob(raw: unknown): PersistedBacktestJob | nul
   const startedAt = Number(payload.started_at);
   return {
     job_id: payload.job_id.trim(),
-    started_at: Number.isFinite(startedAt) ? startedAt : Date.now()
+    started_at: Number.isFinite(startedAt) ? startedAt : nowMs()
   };
 }
 
@@ -86,7 +87,7 @@ function writePersistedBacktestJob(jobId: string): void {
       BACKTEST_ACTIVE_JOB_STORAGE_KEY,
       JSON.stringify({
         job_id: jobId,
-        started_at: Date.now()
+        started_at: nowMs()
       } satisfies PersistedBacktestJob)
     );
   } catch {

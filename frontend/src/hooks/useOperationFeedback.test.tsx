@@ -1,5 +1,5 @@
 import { act } from "react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderHook } from "../test-utils/renderHook";
 import {
   OPERATION_FEEDBACK_CLEARED_AT_STORAGE_KEY,
@@ -12,6 +12,8 @@ import {
 const originalLocalStorage = window.localStorage;
 
 beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-02-27T00:00:00.000Z"));
   const memory = new Map<string, string>();
   Object.defineProperty(window, "localStorage", {
     configurable: true,
@@ -35,6 +37,7 @@ afterEach(() => {
     configurable: true,
     value: originalLocalStorage
   });
+  vi.useRealTimers();
 });
 
 describe("useOperationFeedback", () => {

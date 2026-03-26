@@ -61,6 +61,7 @@ interface Props {
   onRestartOptimizationHistoryJob: (jobId: string) => void;
   onCancelOptimization: () => void;
   onApplyOptimizationRow: (row: OptimizationRow) => void;
+  canCompareWithCurrentBacktest?: boolean;
   onCopyLiveParams: (row: OptimizationRow) => void;
   optimizationSortBy: string;
   onOptimizationSortByChange: (value: string) => void;
@@ -99,6 +100,7 @@ export default function OptimizationPanel({
   onRestartOptimizationHistoryJob,
   onCancelOptimization,
   onApplyOptimizationRow,
+  canCompareWithCurrentBacktest = false,
   onCopyLiveParams,
   optimizationSortBy,
   onOptimizationSortByChange,
@@ -248,6 +250,7 @@ export default function OptimizationPanel({
               optimizationResultTab={optimizationResultTab}
               onOptimizationResultTabChange={onOptimizationResultTabChange}
               onApplyOptimizationRow={onApplyOptimizationRow}
+              canCompareWithCurrentBacktest={canCompareWithCurrentBacktest}
               onCopyLiveParams={onCopyLiveParams}
               optimizationSortBy={optimizationSortBy}
               onOptimizationSortByChange={onOptimizationSortByChange}

@@ -4,6 +4,7 @@ import { humanizeConstraintList } from "../constraints";
 interface Props {
   bestRow: OptimizationRow | null;
   onApplyOptimizationRow: (row: OptimizationRow) => void;
+  canCompareWithCurrentBacktest?: boolean;
   onCopyLiveParams: (row: OptimizationRow) => void;
 }
 
@@ -24,6 +25,7 @@ function safeConstraintViolations(raw: unknown): string[] {
 export default function OptimizationBestSummaryCard({
   bestRow,
   onApplyOptimizationRow,
+  canCompareWithCurrentBacktest = false,
   onCopyLiveParams
 }: Props) {
   if (!bestRow) {
@@ -52,7 +54,7 @@ export default function OptimizationBestSummaryCard({
           className="ui-btn ui-btn-secondary ui-btn-xs"
           onClick={() => onApplyOptimizationRow(bestRow)}
         >
-          应用到回测模块
+          {canCompareWithCurrentBacktest ? "回填并对比回测" : "应用到回测模块"}
         </button>
         <button
           type="button"

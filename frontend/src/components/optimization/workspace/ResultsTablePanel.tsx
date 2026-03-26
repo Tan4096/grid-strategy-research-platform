@@ -10,6 +10,7 @@ interface Props {
   filteredRowsCount: number;
   filteredRows: Parameters<typeof OptimizationResultsTable>[0]["rows"];
   onApplyOptimizationRow: Parameters<typeof OptimizationResultsTable>[0]["onApply"];
+  canCompareWithCurrentBacktest?: boolean;
   optimizationSortBy: string;
   onOptimizationSortByChange: (value: string) => void;
   optimizationSortOrder: SortOrder;
@@ -42,6 +43,7 @@ export default function ResultsTablePanel({
   filteredRowsCount,
   filteredRows,
   onApplyOptimizationRow,
+  canCompareWithCurrentBacktest = false,
   optimizationSortBy,
   onOptimizationSortByChange,
   optimizationSortOrder,
@@ -100,6 +102,7 @@ export default function ResultsTablePanel({
         <OptimizationResultsTable
           rows={filteredRows}
           onApply={onApplyOptimizationRow}
+          applyLabel={canCompareWithCurrentBacktest ? "回填并对比回测" : "应用到回测模块"}
           viewMode={tableViewMode}
           columnPreset={tablePreset}
           visibleColumns={columnVisibility}

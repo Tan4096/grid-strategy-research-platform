@@ -14,6 +14,7 @@ import type { BacktestResponse } from "../lib/api-schema";
 import StateBlock from "./ui/StateBlock";
 
 const BacktestEventsTimeline = lazy(() => import("./BacktestEventsTimeline"));
+const BacktestComparisonWorkspace = lazy(() => import("./BacktestComparisonWorkspace"));
 const LineChart = lazy(() => import("./LineChart"));
 const MetricCards = lazy(() => import("./MetricCards"));
 const PriceGridChart = lazy(() => import("./PriceGridChart"));
@@ -118,6 +119,8 @@ function buildLegacyDiagnosis(result: BacktestResponse): { level: "低" | "中" 
 interface Props {
   error: string | null;
   result: BacktestResponse | null;
+  comparisonBaselineResult?: BacktestResponse | null;
+  comparisonCandidateLabel?: string | null;
   loading: boolean;
   transportMode: JobTransportMode;
   symbol: string;
@@ -134,6 +137,8 @@ function ChartFallback({ minHeight = "180px" }: { minHeight?: string }) {
 export default function BacktestPanel({
   error,
   result,
+  comparisonBaselineResult = null,
+  comparisonCandidateLabel = null,
   loading,
   transportMode,
   symbol
@@ -572,10 +577,29 @@ export default function BacktestPanel({
       {error && <StateBlock variant="error" title="回测错误" message={error} action={parameterAction} minHeight={120} />}
 
       {!result && !loading && <StateBlock variant="empty" message="请输入参数并点击“开始回测”" action={parameterAction} minHeight={220} />}
-      {!result && loading && <StateBlock variant="loading" message={`回测执行中...（${transportLabel}）`} minHeight={220} />}
+      {!result && loading && (
+        <StateBlock
+          variant="loading"
+          message={
+            comparisonBaselineResult
+              ? `对比回测生成中...（${transportLabel}）`
+              : `回测执行中...（${transportLabel}）`
+          }
+          minHeight={220}
+        />
+      )}
 
       {result && (
         <div className={isMobileViewport ? "space-y-3" : "space-y-5 sm:space-y-6"}>
+          {comparisonBaselineResult && (
+            <Suspense fallback={<ChartFallback minHeight="220px" />}>
+              <BacktestComparisonWorkspace
+                baseResult={comparisonBaselineResult}
+                candidateResult={result}
+                candidateLabel={comparisonCandidateLabel}
+              />
+            </Suspense>
+          )}
           {!isMobileViewport && (
             <section className="card space-y-3 p-2.5 sm:p-3" data-tour-id="backtest-result-card">
               <Suspense fallback={<ChartFallback minHeight="120px" />}>

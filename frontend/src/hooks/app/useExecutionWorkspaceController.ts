@@ -1,10 +1,19 @@
 import { useCallback, useMemo, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import type { WorkspaceTab } from "../../components/OptimizationPanel";
-import { cloneBacktestRequest, exportBacktestResultCsv } from "../../lib/backtestAppHelpers";
+import {
+  applyOptimizationRowToRequest,
+  cloneBacktestRequest,
+  exportBacktestResultCsv
+} from "../../lib/backtestAppHelpers";
 import { resolveMobilePrimaryTabAfterRun } from "../../lib/mobileShell";
 import type { AppWorkspaceMode, MobilePrimaryTab, ParameterMode } from "../../types";
-import type { BacktestRequest, OptimizationConfig, OptimizationRow } from "../../lib/api-schema";
+import type {
+  BacktestRequest,
+  BacktestResponse,
+  OptimizationConfig,
+  OptimizationRow
+} from "../../lib/api-schema";
 import { useBacktestRunner } from "../useBacktestRunner";
 import {
   type OptimizationRunnerActions,
@@ -40,6 +49,9 @@ interface Params {
 
 export interface ExecutionWorkspaceController {
   baselineRequest: BacktestRequest | null;
+  comparisonBaselineResult: BacktestResponse | null;
+  comparisonCandidateLabel: string | null;
+  canCompareWithCurrentBacktest: boolean;
   handleRunBacktest: (requestOverride?: BacktestRequest) => Promise<void>;
   handleStartOptimization: (requestOverride?: BacktestRequest) => Promise<void>;
   handleApplyOptimizationRow: (row: OptimizationRow) => void;
@@ -71,6 +83,8 @@ export function useExecutionWorkspaceController({
   setOptimizationWorkspaceTab
 }: Params): ExecutionWorkspaceController {
   const [baselineRequest, setBaselineRequest] = useState<BacktestRequest | null>(null);
+  const [comparisonBaselineResult, setComparisonBaselineResult] = useState<BacktestResponse | null>(null);
+  const [comparisonCandidateLabel, setComparisonCandidateLabel] = useState<string | null>(null);
 
   const backtest = useBacktestRunner({
     request,
@@ -82,9 +96,9 @@ export function useExecutionWorkspaceController({
   });
 
   const [optimizationState, optimizationActions] = useOptimizationRunner({
-  request,
-  requestReady,
-  optimizationConfig: optimizationConfigWithRiskCap,
+    request,
+    requestReady,
+    optimizationConfig: optimizationConfigWithRiskCap,
     optimizationConfigReady,
     optimizationPrecheck,
     showToast,
@@ -97,11 +111,18 @@ export function useExecutionWorkspaceController({
       }
     }
   });
+  const backtestResult = backtest.result;
+  const backtestLoading = backtest.loading;
+  const runBacktestJob = backtest.runBacktest;
 
   const canExportBacktest = useMemo(() => Boolean(backtest.result), [backtest.result]);
   const canExportOptimization = useMemo(
     () => Boolean(optimizationState.optimizationStatus?.job.status === "completed"),
     [optimizationState.optimizationStatus]
+  );
+  const canCompareWithCurrentBacktest = useMemo(
+    () => Boolean(backtestResult) && !backtestLoading,
+    [backtestLoading, backtestResult]
   );
   const backtestRunBlockedReason = useMemo(
     () => backtestPrecheck.errors[0] ?? null,
@@ -114,26 +135,50 @@ export function useExecutionWorkspaceController({
 
 
   const handleApplyOptimizationRow = useCallback((row: OptimizationRow) => {
-    setRequest((prev) => ({
-      ...prev,
-      strategy: {
-        ...prev.strategy,
-        lower: row.lower_price,
-        upper: row.upper_price,
-        stop_loss: row.stop_price,
-        leverage: row.leverage,
-        grids: row.grids,
-        use_base_position: row.use_base_position
+    const nextRequest = applyOptimizationRowToRequest(request, row);
+    const canCompareImmediately = Boolean(backtestResult) && !backtestLoading;
+
+    if (canCompareImmediately && backtestResult) {
+      setComparisonBaselineResult(backtestResult);
+      setComparisonCandidateLabel(`组合 #${row.row_id}`);
+      setRequest(nextRequest);
+      setParameterMode("backtest");
+      setWorkspaceMode("backtest");
+      if (mobileShellEnabled) {
+        setMobilePrimaryTab(resolveMobilePrimaryTabAfterRun("backtest"));
       }
-    }));
+      showToast("优化参数已回填，正在生成对比回测。");
+      void runBacktestJob(nextRequest);
+      return;
+    }
+
+    setComparisonBaselineResult(null);
+    setComparisonCandidateLabel(null);
+    setRequest(nextRequest);
     setParameterMode("backtest");
     setWorkspaceMode("backtest");
+    if (mobileShellEnabled) {
+      setMobilePrimaryTab(resolveMobilePrimaryTabAfterRun("backtest"));
+    }
     showToast("优化参数已回填。");
-  }, [setParameterMode, setRequest, setWorkspaceMode, showToast]);
+  }, [
+    backtestLoading,
+    backtestResult,
+    mobileShellEnabled,
+    request,
+    setMobilePrimaryTab,
+    setParameterMode,
+    setRequest,
+    setWorkspaceMode,
+    showToast,
+    runBacktestJob
+  ]);
 
   const handleRunBacktest = useCallback(
     async (requestOverride?: BacktestRequest) => {
       const effectiveRequest = requestOverride ?? request;
+      setComparisonBaselineResult(null);
+      setComparisonCandidateLabel(null);
       setBaselineRequest(cloneBacktestRequest(effectiveRequest));
       setParameterMode("backtest");
       setWorkspaceMode("backtest");
@@ -197,12 +242,17 @@ export function useExecutionWorkspaceController({
 
   const handleExportBacktest = useCallback(() => {
     if (backtest.result) {
-      exportBacktestResultCsv(backtest.result, baselineRequest ?? request);
+      const exportRequest =
+        comparisonBaselineResult && comparisonCandidateLabel ? request : baselineRequest ?? request;
+      exportBacktestResultCsv(backtest.result, exportRequest);
     }
-  }, [backtest.result, baselineRequest, request]);
+  }, [backtest.result, baselineRequest, comparisonBaselineResult, comparisonCandidateLabel, request]);
 
   return {
     baselineRequest,
+    comparisonBaselineResult,
+    comparisonCandidateLabel,
+    canCompareWithCurrentBacktest,
     handleRunBacktest,
     handleStartOptimization,
     handleApplyOptimizationRow,

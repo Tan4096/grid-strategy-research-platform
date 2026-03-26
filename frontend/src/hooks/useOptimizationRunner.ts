@@ -8,6 +8,7 @@ import { useOptimizationJobActions } from "./optimization/useOptimizationJobActi
 import { useOptimizationResultData } from "./optimization/useOptimizationResultData";
 import { useOptimizationPolling } from "./useOptimizationPolling";
 import type { EmitOperationEventInput } from "./useOperationFeedback";
+import { nowMs } from "../lib/time";
 
 interface Precheck {
   errors: string[];
@@ -101,7 +102,7 @@ function normalizePersistedContext(raw: unknown): PersistedOptimizationJobContex
     sort_by: sortBy,
     sort_order: sortOrder,
     result_tab: resultTab,
-    saved_at: Number.isFinite(Number(payload.saved_at)) ? Number(payload.saved_at) : Date.now()
+    saved_at: Number.isFinite(Number(payload.saved_at)) ? Number(payload.saved_at) : nowMs()
   };
 }
 
@@ -294,7 +295,7 @@ export function useOptimizationRunner({
       sort_by: optimizationSortBy,
       sort_order: optimizationSortOrder,
       result_tab: optimizationResultTab,
-      saved_at: Date.now()
+      saved_at: nowMs()
     });
   }, [
     optimizationJobId,

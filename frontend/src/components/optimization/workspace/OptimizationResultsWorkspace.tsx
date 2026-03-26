@@ -21,6 +21,7 @@ interface Props {
   optimizationResultTab: OptimizationResultTab;
   onOptimizationResultTabChange: (tab: OptimizationResultTab) => void;
   onApplyOptimizationRow: (row: OptimizationRow) => void;
+  canCompareWithCurrentBacktest?: boolean;
   onCopyLiveParams: (row: OptimizationRow) => void;
   optimizationSortBy: string;
   onOptimizationSortByChange: (value: string) => void;
@@ -63,6 +64,7 @@ export default function OptimizationResultsWorkspace({
   optimizationResultTab,
   onOptimizationResultTabChange,
   onApplyOptimizationRow,
+  canCompareWithCurrentBacktest = false,
   onCopyLiveParams,
   optimizationSortBy,
   onOptimizationSortByChange,
@@ -146,6 +148,7 @@ export default function OptimizationResultsWorkspace({
       filteredRowsCount={filteredRows.length}
       filteredRows={filteredRows}
       onApplyOptimizationRow={onApplyOptimizationRow}
+      canCompareWithCurrentBacktest={canCompareWithCurrentBacktest}
       optimizationSortBy={optimizationSortBy}
       onOptimizationSortByChange={onOptimizationSortByChange}
       optimizationSortOrder={optimizationSortOrder}
@@ -234,6 +237,7 @@ export default function OptimizationResultsWorkspace({
         <OptimizationBestSummaryCard
           bestRow={bestRow}
           onApplyOptimizationRow={onApplyOptimizationRow}
+          canCompareWithCurrentBacktest={canCompareWithCurrentBacktest}
           onCopyLiveParams={onCopyLiveParams}
         />
         <section className="card space-y-3 p-2.5">
@@ -271,7 +275,7 @@ export default function OptimizationResultsWorkspace({
                       className="ui-btn ui-btn-secondary ui-btn-xs w-full"
                       onClick={() => onApplyOptimizationRow(row)}
                     >
-                      应用
+                      {canCompareWithCurrentBacktest ? "对比" : "应用"}
                     </button>
                     <button
                       type="button"
@@ -344,6 +348,7 @@ export default function OptimizationResultsWorkspace({
       <OptimizationBestSummaryCard
         bestRow={bestRow}
         onApplyOptimizationRow={onApplyOptimizationRow}
+        canCompareWithCurrentBacktest={canCompareWithCurrentBacktest}
         onCopyLiveParams={onCopyLiveParams}
       />
 

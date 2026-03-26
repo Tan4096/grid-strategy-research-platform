@@ -1,4 +1,4 @@
-import type { BacktestRequest, BacktestResponse, OptimizationConfig, StrategyConfig, SweepRange } from "../lib/api-schema";
+import type { BacktestRequest, BacktestResponse, OptimizationConfig, OptimizationRow, StrategyConfig, SweepRange } from "../lib/api-schema";
 import { buildGridNodes, deriveBasePositionGridIndices as sharedDeriveBasePositionGridIndices } from "./gridLogic";
 
 function csvEscape(value: unknown): string {
@@ -97,6 +97,32 @@ export function exportBacktestResultCsv(result: BacktestResponse, request?: Back
   link.setAttribute("download", `btc-grid-backtest-${ts}.csv`);
   link.click();
   URL.revokeObjectURL(url);
+}
+
+export function applyOptimizationRowToRequest(
+  request: BacktestRequest,
+  row: Pick<
+    OptimizationRow,
+    | "lower_price"
+    | "upper_price"
+    | "stop_price"
+    | "leverage"
+    | "grids"
+    | "use_base_position"
+  >
+): BacktestRequest {
+  return {
+    ...request,
+    strategy: {
+      ...request.strategy,
+      lower: row.lower_price,
+      upper: row.upper_price,
+      stop_loss: row.stop_price,
+      leverage: row.leverage,
+      grids: row.grids,
+      use_base_position: row.use_base_position
+    }
+  };
 }
 
 function parseIso(value: string | null | undefined): number | null {

@@ -18,6 +18,8 @@ from app.services.live_snapshot import (
     fetch_okx_robot_list,
 )
 
+FIXED_OKX_ROBOT_LIST_NOW = datetime(2026, 3, 7, 4, 0, tzinfo=timezone.utc)
+
 
 @pytest.fixture(autouse=True)
 def clear_live_caches(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1192,6 +1194,8 @@ def test_live_robot_list_endpoint_returns_items() -> None:
 
 
 def test_fetch_okx_robot_list_maps_payload(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.services.live_snapshot._utc_now", lambda: FIXED_OKX_ROBOT_LIST_NOW)
+
     def fake_okx_signed_get_robot_list(payload, path, params=None):
         assert payload.exchange.value == "okx"
         if path == "/api/v5/tradingBot/grid/orders-algo-pending":
@@ -1237,3 +1241,96 @@ def test_fetch_okx_robot_list_maps_payload(monkeypatch: pytest.MonkeyPatch) -> N
     assert response.items[0].symbol == "BTCUSDT"
     assert response.items[0].name == "BTC Grid"
     assert response.items[1].name.startswith("ETH-USDT-SWAP")
+
+
+def test_fetch_okx_robot_list_recent_scope_excludes_stale_history(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.services.live_snapshot._utc_now", lambda: FIXED_OKX_ROBOT_LIST_NOW)
+
+    def fake_okx_signed_get_robot_list(payload, path, params=None):
+        if path == "/api/v5/tradingBot/grid/orders-algo-pending":
+            return [
+                {
+                    "algoId": "algo-123",
+                    "algoClOrdId": "BTC Grid",
+                    "instId": "BTC-USDT-SWAP",
+                    "state": "running",
+                    "direction": "long",
+                    "uTime": "2026-03-07T12:00:00+08:00",
+                }
+            ]
+        if path == "/api/v5/tradingBot/grid/orders-algo-history":
+            return [
+                {
+                    "algoId": "algo-stale",
+                    "instId": "ETH-USDT-SWAP",
+                    "state": "stopped",
+                    "direction": "short",
+                    "uTime": "2026-02-20T12:00:00+08:00",
+                }
+            ]
+        raise AssertionError(path)
+
+    monkeypatch.setattr("app.services.live_snapshot._okx_signed_get_robot_list", fake_okx_signed_get_robot_list)
+
+    response = fetch_okx_robot_list(
+        LiveRobotListRequest.model_validate(
+            {
+                "exchange": "okx",
+                "scope": "recent",
+                "credentials": {
+                    "api_key": "demo-key",
+                    "api_secret": "demo-secret",
+                    "passphrase": "demo-passphrase",
+                },
+            }
+        )
+    )
+
+    assert [item.algo_id for item in response.items] == ["algo-123"]
+
+
+def test_fetch_okx_robot_list_uses_cache_for_identical_request(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.services.live_snapshot._utc_now", lambda: FIXED_OKX_ROBOT_LIST_NOW)
+
+    calls: list[str] = []
+
+    def fake_okx_signed_get_robot_list(payload, path, params=None):
+        calls.append(path)
+        if path == "/api/v5/tradingBot/grid/orders-algo-pending":
+            return [
+                {
+                    "algoId": "algo-123",
+                    "algoClOrdId": "BTC Grid",
+                    "instId": "BTC-USDT-SWAP",
+                    "state": "running",
+                    "direction": "long",
+                    "uTime": "2026-03-07T12:00:00+08:00",
+                }
+            ]
+        if path == "/api/v5/tradingBot/grid/orders-algo-history":
+            return []
+        raise AssertionError(path)
+
+    monkeypatch.setattr("app.services.live_snapshot._okx_signed_get_robot_list", fake_okx_signed_get_robot_list)
+
+    payload = LiveRobotListRequest.model_validate(
+        {
+            "exchange": "okx",
+            "scope": "recent",
+            "credentials": {
+                "api_key": "demo-key",
+                "api_secret": "demo-secret",
+                "passphrase": "demo-passphrase",
+            },
+        }
+    )
+
+    first = fetch_okx_robot_list(payload)
+    first_call_count = len(calls)
+    second = fetch_okx_robot_list(payload)
+
+    assert [item.algo_id for item in first.items] == ["algo-123"]
+    assert [item.algo_id for item in second.items] == ["algo-123"]
+    assert calls[0] == "/api/v5/tradingBot/grid/orders-algo-pending"
+    assert "/api/v5/tradingBot/grid/orders-algo-history" in calls
+    assert len(calls) == first_call_count

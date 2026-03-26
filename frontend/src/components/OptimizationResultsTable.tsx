@@ -6,6 +6,7 @@ import { humanizeConstraintList } from "./optimization/constraints";
 interface Props {
   rows: OptimizationRow[];
   onApply: (row: OptimizationRow) => void;
+  applyLabel?: string;
   viewMode: "table" | "cards";
   columnPreset: "core" | "full";
   visibleColumns?: Partial<Record<OptimizationResultsColumnKey, boolean>>;
@@ -144,6 +145,7 @@ function renderConstraintCell(row: OptimizationRow) {
 export default function OptimizationResultsTable({
   rows,
   onApply,
+  applyLabel = "应用到回测模块",
   viewMode,
   columnPreset,
   visibleColumns
@@ -174,7 +176,7 @@ export default function OptimizationResultsTable({
                 className="ui-btn ui-btn-secondary ui-btn-xs w-full min-[420px]:w-auto"
                 onClick={() => onApply(row)}
               >
-                应用到回测模块
+                {applyLabel}
               </button>
             </div>
           </div>
@@ -338,7 +340,7 @@ export default function OptimizationResultsTable({
                         className="ui-btn ui-btn-secondary ui-btn-xs"
                         onClick={() => onApply(row)}
                       >
-                        应用
+                        {applyLabel}
                       </button>
                     </td>
                   )}

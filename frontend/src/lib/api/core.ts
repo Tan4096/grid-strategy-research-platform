@@ -1,3 +1,5 @@
+import { nowIso, nowMs } from "../time";
+
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
 export const DEFAULT_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS ?? 30_000);
 const CLIENT_SESSION_STORAGE_KEY = "btc-grid-backtest:client-session:v1";
@@ -86,7 +88,7 @@ export function getClientSessionId(): string {
     const generated =
       typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
         ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        : `${nowMs()}-${Math.random().toString(16).slice(2)}`;
     window.sessionStorage.setItem(CLIENT_SESSION_STORAGE_KEY, generated);
     return generated;
   } catch {
@@ -117,7 +119,7 @@ export function generateIdempotencyKey(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
   }
-  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `${nowMs()}-${Math.random().toString(16).slice(2)}`;
 }
 
 function buildAbortSignal(signal: AbortSignal | undefined, timeoutMs: number): {
@@ -282,7 +284,7 @@ export function asNullableBoolean(value: unknown): boolean | null {
 export function floorIsoToMinute(value: string): string {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
-    return `${new Date().toISOString().slice(0, 16)}:00.000Z`;
+    return `${nowIso().slice(0, 16)}:00.000Z`;
   }
   parsed.setSeconds(0, 0);
   return parsed.toISOString();

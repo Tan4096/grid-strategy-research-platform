@@ -226,6 +226,8 @@ export function useWorkspaceViewModel({
   const backtestPanelProps = {
     error: executionController.backtest.error,
     result: executionController.backtest.result,
+    comparisonBaselineResult: executionController.comparisonBaselineResult,
+    comparisonCandidateLabel: executionController.comparisonCandidateLabel,
     loading: executionController.backtest.loading,
     transportMode: executionController.backtest.transportMode,
     symbol: request.data.symbol
@@ -261,6 +263,7 @@ export function useWorkspaceViewModel({
     onCancelOptimization:
       executionController.optimizationActions.cancelOptimizationRun,
     onApplyOptimizationRow: executionController.handleApplyOptimizationRow,
+    canCompareWithCurrentBacktest: executionController.canCompareWithCurrentBacktest,
     onCopyLiveParams: executionController.handleCopyLiveParams,
     optimizationSortBy: executionController.optimizationState.optimizationSortBy,
     onOptimizationSortByChange: (value: string) => {

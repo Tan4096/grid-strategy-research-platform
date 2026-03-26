@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { OperationEvent, OperationEventCategory, OperationEventKind, OperationEventStatus, OperationRecord, OptimizationHistoryFailedItem } from "../lib/operation-models";
 import { NOTICE_ADVICE, buildNoticeDetail } from "../lib/notificationCopy";
 import { STORAGE_KEYS } from "../lib/storage";
+import { nowIso, nowMs } from "../lib/time";
 
 export const OPERATION_FEEDBACK_STORAGE_KEY = "btc-grid-backtest:operation-feedback:v1";
 export const OPERATION_FEEDBACK_CLEARED_AT_STORAGE_KEY = STORAGE_KEYS.operationFeedbackClearedAt;
@@ -272,13 +273,13 @@ export function mapOperationRecordToEvent(record: OperationRecord): OperationEve
 
 export function pruneOperationFeedbackItems(
   items: OperationEvent[],
-  nowMs: number = Date.now()
+  currentNowMs: number = nowMs()
 ): OperationEvent[] {
   const seen = new Set<string>();
   const normalized: OperationEvent[] = [];
   for (const raw of items) {
     const item = normalizeFeedbackItem(raw);
-    if (!item || isExpired(item.created_at, nowMs) || seen.has(item.id)) {
+    if (!item || isExpired(item.created_at, currentNowMs) || seen.has(item.id)) {
       continue;
     }
     seen.add(item.id);
@@ -357,21 +358,21 @@ function writeOperationFeedbackClearedAtToStorage(clearedAtMs: number | null): v
 }
 
 function buildFeedbackItem(input: EmitOperationEventInput, existing: OperationEvent | null = null): OperationEvent {
-  const nowIso = new Date().toISOString();
+  const nowIsoText = nowIso();
   const normalizedStatus = normalizeStatus(input.status);
   return {
     id:
       typeof input.id === "string" && input.id.trim()
         ? input.id.trim()
-        : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        : `${nowMs()}-${Math.random().toString(16).slice(2)}`,
     kind: existing?.kind ?? normalizeKind(input.kind ?? (input.id ? "state" : "history")),
     category: normalizeCategory(input.category, input.type),
     action: input.action?.trim() || "ui_notice",
     title: input.title.trim(),
     detail: input.detail?.trim() || null,
     status: normalizedStatus,
-    created_at: existing?.created_at ?? nowIso,
-    updated_at: nowIso,
+    created_at: existing?.created_at ?? nowIsoText,
+    updated_at: nowIsoText,
     request_id: input.request_id?.trim() || undefined,
     operation_id: input.operation_id?.trim() || undefined,
     job_ids: normalizeJobIds(input.job_ids),
@@ -501,7 +502,7 @@ export function useOperationFeedback() {
   }, []);
 
   const clearOperationFeedback = useCallback(() => {
-    setClearedAtMs(Date.now());
+    setClearedAtMs(nowMs());
     setItems([]);
     setLatestNoticeId(null);
   }, []);

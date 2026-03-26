@@ -3,7 +3,6 @@ from __future__ import annotations
 import math
 import os
 import random
-import re
 import threading
 import time
 import uuid
@@ -12,7 +11,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from itertools import product
 from pathlib import Path
-from tempfile import gettempdir
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.core.optimization_schemas import (
@@ -95,6 +93,7 @@ from app.optimizer.sampling import (
     suggest_from_sweep as _suggest_from_sweep,
     total_space_combinations as _total_space_combinations,
 )
+from app.optimizer.storage_paths import optuna_study_storage_url
 from app.optimizer.status_views import build_heatmap as build_heatmap_view
 from app.optimizer.status_views import paginate_rows as paginate_rows_view
 from app.optimizer.status_views import score_sort_key as score_sort_key_view
@@ -166,14 +165,8 @@ def _refresh_queue_depth_locked() -> None:
     set_queue_depth(queue_name="optimization", depth=running_jobs)
 
 
-def _sanitize_study_key(value: str) -> str:
-    return re.sub(r"[^a-zA-Z0-9_.-]+", "-", value).strip("-") or "default-study"
-
-
 def _build_resume_storage(study_key: str) -> tuple[str, str]:
-    safe_key = _sanitize_study_key(study_key)
-    db_path = Path(gettempdir()) / f"btc-grid-optuna-{safe_key}.sqlite3"
-    return f"sqlite:///{db_path}", safe_key
+    return optuna_study_storage_url(study_key)
 
 
 def _split_walk_forward(candles: List[Candle], train_ratio: float) -> Tuple[List[Candle], List[Candle]]:

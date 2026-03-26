@@ -2,14 +2,12 @@ from __future__ import annotations
 
 import math
 import os
-import re
 import threading
 from dataclasses import dataclass
-from pathlib import Path
-from tempfile import gettempdir
 from typing import Any, Callable, List, Optional
 
 from app.core.optimization_schemas import OptimizationProgressPoint
+from app.optimizer.storage_paths import optuna_study_storage_url
 
 
 class BayesianDependencyError(RuntimeError):
@@ -46,14 +44,8 @@ def _load_optuna():
     return optuna
 
 
-def _sanitize_study_key(value: str) -> str:
-    return re.sub(r"[^a-zA-Z0-9_.-]+", "-", value).strip("-") or "default-study"
-
-
 def _build_resume_storage(study_key: str) -> tuple[str, str]:
-    safe_key = _sanitize_study_key(study_key)
-    db_path = Path(gettempdir()) / f"btc-grid-optuna-{safe_key}.sqlite3"
-    return f"sqlite:///{db_path}", safe_key
+    return optuna_study_storage_url(study_key)
 
 
 def run_bayesian_search(
