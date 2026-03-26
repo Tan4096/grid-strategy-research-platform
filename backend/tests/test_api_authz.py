@@ -263,6 +263,16 @@ def test_startup_rejects_multi_worker_with_inmemory_jobs(monkeypatch: pytest.Mon
             pass
 
 
+def test_startup_rejects_public_mode_with_inmemory_jobs(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BACKEND_WORKERS", "1")
+    monkeypatch.setenv("APP_PUBLIC_MODE", "1")
+    monkeypatch.setenv("APP_TASK_BACKEND", "inmemory")
+
+    with pytest.raises(RuntimeError):
+        with TestClient(app):
+            pass
+
+
 def test_startup_rejects_arq_when_state_redis_required_and_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("BACKEND_WORKERS", "1")
     monkeypatch.setenv("APP_TASK_BACKEND", "arq")
@@ -276,6 +286,17 @@ def test_startup_rejects_arq_when_state_redis_required_and_unavailable(monkeypat
 
 def test_startup_allows_multi_worker_when_all_jobs_use_arq(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("BACKEND_WORKERS", "2")
+    monkeypatch.setenv("APP_TASK_BACKEND", "arq")
+    monkeypatch.setenv("APP_STATE_REDIS_REQUIRED_IN_ARQ", "0")
+
+    with TestClient(app) as client:
+        response = client.get("/api/v1/health")
+        assert response.status_code == 200
+
+
+def test_startup_allows_public_mode_when_all_jobs_use_arq(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BACKEND_WORKERS", "1")
+    monkeypatch.setenv("APP_PUBLIC_MODE", "1")
     monkeypatch.setenv("APP_TASK_BACKEND", "arq")
     monkeypatch.setenv("APP_STATE_REDIS_REQUIRED_IN_ARQ", "0")
 

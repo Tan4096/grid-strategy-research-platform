@@ -15,13 +15,14 @@ from app.api.domain_routes import router as api_router
 from app.core.api_errors import ApiError, build_error_response, http_status_error_code
 from app.core.audit import audit_http_request
 from app.core.concurrency_limit import acquire_concurrency_slot, release_concurrency_slot
+from app.core.job_runtime import ensure_persistent_job_backend_for_shared_runtime
 from app.core.metrics import inc_rate_limited, observe_http_request
+from app.services.backtest_jobs import recover_interrupted_backtest_jobs
 from app.optimizer.optimizer import recover_interrupted_optimization_jobs
 from app.core.rate_limit import check_rate_limit
 from app.core.redis_state import ensure_state_redis_ready_for_arq_or_raise
 from app.core.security import AuthPrincipal, authenticate_request
 from app.core.settings import get_settings
-from app.core.task_backend import any_inmemory_backend_enabled
 
 
 def _configure_logging() -> None:
@@ -39,6 +40,14 @@ _configure_logging()
 @asynccontextmanager
 async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
     _enforce_runtime_safety()
+    backtest_summary = recover_interrupted_backtest_jobs()
+    logging.getLogger("app.startup").info(
+        "backtest recovery summary: scanned=%s restarted=%s skipped=%s failed=%s",
+        backtest_summary.get("scanned", 0),
+        backtest_summary.get("restarted", 0),
+        backtest_summary.get("skipped", 0),
+        backtest_summary.get("failed", 0),
+    )
     summary = recover_interrupted_optimization_jobs()
     logging.getLogger("app.startup").info(
         "optimization recovery summary: scanned=%s restarted=%s skipped=%s failed=%s",
@@ -67,24 +76,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-def _configured_worker_count() -> int:
-    return get_settings().configured_worker_count()
-
-
-def _uses_inmemory_jobs() -> bool:
-    return any_inmemory_backend_enabled()
-
-
 def _enforce_runtime_safety() -> None:
-    worker_count = _configured_worker_count()
-    if _uses_inmemory_jobs() and worker_count > 1:
-        raise RuntimeError(
-            "检测到 BACKEND_WORKERS>1 且任务后端为内存模式。"
-            "该组合会导致多进程任务状态不一致，已拒绝启动。"
-            "请将 BACKEND_WORKERS 设为 1，或迁移到持久队列后端。"
-        )
+    ensure_persistent_job_backend_for_shared_runtime()
     ensure_state_redis_ready_for_arq_or_raise()
 
 

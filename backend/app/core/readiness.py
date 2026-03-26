@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.core.job_runtime import current_job_runtime_policy, persistent_backend_violations
 from app.core.redis_state import get_state_redis, state_redis_enabled
 from app.core.settings import get_settings
 from app.core.task_backend import (
@@ -45,6 +46,8 @@ def _ping_redis_dsn(dsn: str) -> tuple[bool, str]:
 
 
 def build_ready_report() -> tuple[bool, dict[str, Any], str]:
+    runtime_policy = current_job_runtime_policy()
+    backend_violations = persistent_backend_violations(runtime_policy)
     opt_ok, opt_message = probe_optimization_store_writable()
     bt_ok, bt_message = probe_backtest_store_writable()
     sqlite_ok = opt_ok and bt_ok
@@ -80,11 +83,14 @@ def build_ready_report() -> tuple[bool, dict[str, Any], str]:
         },
     }
 
-    task_backend_ok = not arq_required or arq_redis_ok
+    task_backend_ok = (not arq_required or arq_redis_ok) and not backend_violations
     task_backend_payload = {
         "status": "ok" if task_backend_ok else "degraded",
         "backtest": backtest_task_backend().value,
         "optimization": optimization_task_backend().value,
+        "persistent_backend_required": runtime_policy.persistent_backend_required,
+        "shared_runtime_reasons": list(runtime_policy.shared_runtime_reasons),
+        "backend_violations": list(backend_violations),
     }
 
     ready_ok = sqlite_ok and redis_ok and task_backend_ok

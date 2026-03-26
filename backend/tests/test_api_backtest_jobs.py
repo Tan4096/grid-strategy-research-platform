@@ -65,13 +65,17 @@ def _payload() -> dict:
 def isolate_backtest_jobs_state():
     with backtest_jobs._JOBS_LOCK:
         backup = dict(backtest_jobs._JOBS)
+        thread_backup = dict(backtest_jobs._JOB_THREADS)
         backtest_jobs._JOBS.clear()
+        backtest_jobs._JOB_THREADS.clear()
     try:
         yield
     finally:
         with backtest_jobs._JOBS_LOCK:
             backtest_jobs._JOBS.clear()
             backtest_jobs._JOBS.update(backup)
+            backtest_jobs._JOB_THREADS.clear()
+            backtest_jobs._JOB_THREADS.update(thread_backup)
 
 
 def test_backtest_async_start_and_status_completed() -> None:
@@ -133,6 +137,29 @@ def test_backtest_async_status_404_for_unknown_job() -> None:
     client = TestClient(app)
     response = client.get("/api/v1/backtest/missing-job-id")
     assert response.status_code == 404
+
+
+def test_backtest_restart_endpoint_creates_new_job_for_completed_run() -> None:
+    client = TestClient(app)
+    start_resp = client.post("/api/v1/backtest/start", json=_payload())
+    assert start_resp.status_code == 200
+    original_job_id = start_resp.json()["job_id"]
+
+    deadline = time.time() + 6.0
+    while time.time() < deadline:
+        status_resp = client.get(f"/api/v1/backtest/{original_job_id}")
+        assert status_resp.status_code == 200
+        if status_resp.json()["job"]["status"] == "completed":
+            break
+        time.sleep(0.05)
+    else:
+        raise AssertionError("backtest did not finish before restart test")
+
+    restart_resp = client.post(f"/api/v1/backtest/{original_job_id}/restart")
+    assert restart_resp.status_code == 200
+    restart_payload = restart_resp.json()
+    assert restart_payload["status"] == "pending"
+    assert restart_payload["job_id"] != original_job_id
 
 
 def test_backtest_anchor_price_uses_first_candle_close() -> None:

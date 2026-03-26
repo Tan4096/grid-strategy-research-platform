@@ -15,7 +15,9 @@ from app.services import backtest_jobs
 def isolate_job_states():
     with backtest_jobs._JOBS_LOCK:
         backtest_backup = dict(backtest_jobs._JOBS)
+        backtest_threads_backup = dict(backtest_jobs._JOB_THREADS)
         backtest_jobs._JOBS.clear()
+        backtest_jobs._JOB_THREADS.clear()
     with optimizer._JOB_LOCK:
         optimizer_jobs_backup = dict(optimizer._JOBS)
         optimizer_threads_backup = dict(optimizer._JOB_THREADS)
@@ -27,6 +29,8 @@ def isolate_job_states():
         with backtest_jobs._JOBS_LOCK:
             backtest_jobs._JOBS.clear()
             backtest_jobs._JOBS.update(backtest_backup)
+            backtest_jobs._JOB_THREADS.clear()
+            backtest_jobs._JOB_THREADS.update(backtest_threads_backup)
         with optimizer._JOB_LOCK:
             optimizer._JOBS.clear()
             optimizer._JOBS.update(optimizer_jobs_backup)

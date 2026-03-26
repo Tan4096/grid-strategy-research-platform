@@ -11,19 +11,20 @@ from typing import Any, Dict, Optional
 
 from app.core.metrics import observe_job_duration, set_queue_depth
 from app.core.schemas import (
-    Candle,
     BacktestJobMeta,
     BacktestJobStatus,
     BacktestRequest,
     BacktestResult,
     BacktestStartResponse,
     BacktestStatusResponse,
+    Candle,
 )
 from app.core.task_backend import use_arq_for_backtest
 from app.services.backtest_engine import run_backtest
 from app.services.backtest_job_store import (
     count_active_backtest_jobs,
     is_backtest_cancel_requested,
+    list_recoverable_backtest_job_snapshots,
     load_backtest_job_snapshot,
     save_backtest_job_snapshot,
     set_backtest_cancel_requested,
@@ -45,6 +46,7 @@ class _BacktestJobRecord:
 
 _JOBS_LOCK = threading.Lock()
 _JOBS: Dict[str, _BacktestJobRecord] = {}
+_JOB_THREADS: Dict[str, threading.Thread] = {}
 _FINISHED_STATUSES = {
     BacktestJobStatus.COMPLETED,
     BacktestJobStatus.FAILED,
@@ -52,6 +54,9 @@ _FINISHED_STATUSES = {
 }
 _JOB_TTL_SECONDS = max(60, int(os.getenv("BACKTEST_JOB_TTL_SECONDS", "86400")))
 _JOB_MAX_RECORDS = max(10, int(os.getenv("BACKTEST_MAX_JOB_RECORDS", "200")))
+_RECOVERY_ENABLED = (os.getenv("BACKTEST_RECOVERY_ENABLED", "1").strip().lower() not in {"0", "false", "no", "off"})
+_RECOVERY_MAX_JOBS = max(0, int(os.getenv("BACKTEST_RECOVERY_MAX_JOBS", "2")))
+_RECOVERY_SCAN_LIMIT = max(_RECOVERY_MAX_JOBS, int(os.getenv("BACKTEST_RECOVERY_SCAN_LIMIT", "20")))
 _LOGGER = logging.getLogger("app.backtest_jobs")
 
 
@@ -97,7 +102,10 @@ def validate_backtest_request(payload: BacktestRequest) -> list[Candle]:
 
 
 def _refresh_queue_depth_locked() -> None:
-    running_jobs = sum(1 for record in _JOBS.values() if record.meta.status not in _FINISHED_STATUSES)
+    try:
+        running_jobs = count_active_backtest_jobs()
+    except Exception:
+        running_jobs = sum(1 for record in _JOBS.values() if record.meta.status not in _FINISHED_STATUSES)
     set_queue_depth(queue_name="backtest", depth=running_jobs)
 
 
@@ -114,8 +122,10 @@ def _cleanup_jobs_locked(now: Optional[datetime] = None) -> None:
     ]
     for job_id in expired_ids:
         _JOBS.pop(job_id, None)
+        _JOB_THREADS.pop(job_id, None)
 
     if len(_JOBS) <= _JOB_MAX_RECORDS:
+        _refresh_queue_depth_locked()
         return
 
     finished_sorted = sorted(
@@ -129,7 +139,111 @@ def _cleanup_jobs_locked(now: Optional[datetime] = None) -> None:
     while len(_JOBS) > _JOB_MAX_RECORDS and finished_sorted:
         stale_id, _ = finished_sorted.pop(0)
         _JOBS.pop(stale_id, None)
+        _JOB_THREADS.pop(stale_id, None)
+
     _refresh_queue_depth_locked()
+
+
+def _persist_record_snapshot(record: _BacktestJobRecord) -> None:
+    try:
+        save_backtest_job_snapshot(
+            job_id=record.meta.job_id,
+            status=record.meta.status.value,
+            created_at=record.meta.created_at.isoformat(),
+            meta=record.meta.model_dump(mode="json"),
+            payload=record.payload.model_dump(mode="json"),
+            result=record.result.model_dump(mode="json") if record.result is not None else None,
+            cancel_requested=record.cancel_requested,
+        )
+    except Exception:
+        return
+
+
+def _load_record_from_snapshot(job_id: str) -> Optional[_BacktestJobRecord]:
+    snapshot = load_backtest_job_snapshot(job_id)
+    if snapshot is None:
+        return None
+
+    try:
+        meta = BacktestJobMeta.model_validate(snapshot["meta"])
+        payload = _parse_snapshot_payload(snapshot.get("payload"))
+        result_data = snapshot.get("result")
+        result = BacktestResult.model_validate(result_data) if isinstance(result_data, dict) else None
+    except Exception:
+        return None
+
+    if payload is None:
+        return None
+
+    return _BacktestJobRecord(
+        meta=meta,
+        payload=payload,
+        cancel_requested=bool(snapshot.get("cancel_requested", False)),
+        result=result,
+    )
+
+
+def _refresh_record_from_snapshot_for_remote_worker_locked(
+    job_id: str,
+    record: _BacktestJobRecord,
+) -> _BacktestJobRecord:
+    worker = _JOB_THREADS.get(job_id)
+    if worker is not None and worker.is_alive():
+        return record
+    if record.meta.status in _FINISHED_STATUSES and record.result is not None:
+        return record
+
+    loaded = _load_record_from_snapshot(job_id)
+    if loaded is None:
+        return record
+
+    current_progress = float(record.meta.progress or 0.0)
+    loaded_progress = float(loaded.meta.progress or 0.0)
+
+    should_replace = False
+    if loaded.meta.status in _FINISHED_STATUSES and record.meta.status not in _FINISHED_STATUSES:
+        should_replace = True
+    elif loaded_progress > current_progress + 1e-6:
+        should_replace = True
+    elif loaded.meta.started_at and not record.meta.started_at:
+        should_replace = True
+    elif loaded.meta.finished_at and not record.meta.finished_at:
+        should_replace = True
+    elif loaded.meta.message != record.meta.message:
+        should_replace = True
+    elif loaded.meta.error != record.meta.error:
+        should_replace = True
+    elif loaded.result is not None and record.result is None:
+        should_replace = True
+    elif loaded.cancel_requested and not record.cancel_requested:
+        should_replace = True
+
+    if should_replace:
+        _JOBS[job_id] = loaded
+        return loaded
+    return record
+
+
+def _ensure_running_job_alive_locked(job_id: str, record: _BacktestJobRecord) -> None:
+    if record.meta.status not in {BacktestJobStatus.PENDING, BacktestJobStatus.RUNNING}:
+        return
+    if record.meta.status == BacktestJobStatus.PENDING and record.meta.started_at is None:
+        return
+    worker = _JOB_THREADS.get(job_id)
+    if worker is None:
+        return
+    if worker.is_alive():
+        return
+    if record.meta.status in _FINISHED_STATUSES:
+        return
+
+    record.meta.status = BacktestJobStatus.FAILED
+    record.meta.finished_at = datetime.now(timezone.utc)
+    record.meta.progress = 100.0
+    record.meta.message = "Backtest failed: worker exited unexpectedly"
+    if not record.meta.error:
+        record.meta.error = "backtest worker not running"
+    _persist_record_snapshot(record)
 
 
 def _update_job_meta(job_id: str, **kwargs: object) -> None:
@@ -139,13 +253,27 @@ def _update_job_meta(job_id: str, **kwargs: object) -> None:
             return
         for key, value in kwargs.items():
             setattr(record.meta, key, value)
+        _persist_record_snapshot(record)
         _refresh_queue_depth_locked()
 
 
 def _is_cancel_requested(job_id: str) -> bool:
+    record: Optional[_BacktestJobRecord]
     with _JOBS_LOCK:
         record = _JOBS.get(job_id)
-        return bool(record.cancel_requested) if record else True
+        if record is not None and record.cancel_requested:
+            return True
+    try:
+        requested = is_backtest_cancel_requested(job_id)
+    except Exception:
+        return False
+
+    if requested and record is not None:
+        with _JOBS_LOCK:
+            latest = _JOBS.get(job_id)
+            if latest is not None:
+                latest.cancel_requested = True
+    return requested
 
 
 def _raise_if_cancelled(job_id: str) -> None:
@@ -153,9 +281,44 @@ def _raise_if_cancelled(job_id: str) -> None:
         raise _BacktestCancelledError("backtest cancelled by user")
 
 
+def _run_backtest_pipeline(
+    payload: BacktestRequest,
+    *,
+    on_progress,
+    raise_if_cancelled,
+) -> BacktestResult:
+    raise_if_cancelled()
+    on_progress(5.0, "Loading candles")
+    candles = validate_backtest_request(payload)
+    raise_if_cancelled()
+
+    on_progress(25.0, "Loading funding rates")
+    funding_rates = load_funding_rates(payload.data)
+    raise_if_cancelled()
+
+    on_progress(45.0, "Running backtest")
+    result = run_backtest(candles=candles, strategy=payload.strategy, funding_rates=funding_rates)
+    raise_if_cancelled()
+
+    on_progress(80.0, "Calculating analysis/scoring")
+    analysis_input = build_strategy_analysis_input(summary=result.summary, strategy=payload.strategy)
+    analysis = analyze_strategy(analysis_input)
+    scoring_input = build_strategy_scoring_input(
+        summary=result.summary,
+        strategy=payload.strategy,
+        equity_curve=result.equity_curve,
+        interval_value=payload.data.interval.value,
+    )
+    scoring = score_strategy(scoring_input)
+    final_result = result.model_copy(update={"analysis": analysis, "scoring": scoring})
+    raise_if_cancelled()
+    return final_result
+
+
 def _run_backtest_job(job_id: str) -> None:
     started_monotonic = time.perf_counter()
-    record: Optional[_BacktestJobRecord]
+    status_label = "unknown"
+
     with _JOBS_LOCK:
         record = _JOBS.get(job_id)
     if record is None:
@@ -163,39 +326,24 @@ def _run_backtest_job(job_id: str) -> None:
 
     payload = record.payload
     try:
-        _raise_if_cancelled(job_id)
         _update_job_meta(
             job_id,
             status=BacktestJobStatus.RUNNING,
             started_at=datetime.now(timezone.utc),
-            progress=5.0,
-            message="Loading candles",
+            progress=0.0,
+            message="Queued",
             error=None,
         )
 
-        candles = validate_backtest_request(payload)
-        _raise_if_cancelled(job_id)
+        def _on_progress(progress: float, message: str) -> None:
+            _raise_if_cancelled(job_id)
+            _update_job_meta(job_id, progress=progress, message=message, error=None)
 
-        _update_job_meta(job_id, progress=25.0, message="Loading funding rates")
-        funding_rates = load_funding_rates(payload.data)
-        _raise_if_cancelled(job_id)
-
-        _update_job_meta(job_id, progress=45.0, message="Running backtest")
-        result = run_backtest(candles=candles, strategy=payload.strategy, funding_rates=funding_rates)
-        _raise_if_cancelled(job_id)
-
-        _update_job_meta(job_id, progress=80.0, message="Calculating analysis/scoring")
-        analysis_input = build_strategy_analysis_input(summary=result.summary, strategy=payload.strategy)
-        analysis = analyze_strategy(analysis_input)
-        scoring_input = build_strategy_scoring_input(
-            summary=result.summary,
-            strategy=payload.strategy,
-            equity_curve=result.equity_curve,
-            interval_value=payload.data.interval.value,
+        final_result = _run_backtest_pipeline(
+            payload,
+            on_progress=_on_progress,
+            raise_if_cancelled=lambda: _raise_if_cancelled(job_id),
         )
-        scoring = score_strategy(scoring_input)
-        final_result = result.model_copy(update={"analysis": analysis, "scoring": scoring})
-        _raise_if_cancelled(job_id)
 
         with _JOBS_LOCK:
             latest = _JOBS.get(job_id)
@@ -207,6 +355,8 @@ def _run_backtest_job(job_id: str) -> None:
             latest.meta.progress = 100.0
             latest.meta.message = "Backtest completed"
             latest.meta.error = None
+            latest.cancel_requested = False
+            _persist_record_snapshot(latest)
     except _BacktestCancelledError as exc:
         _update_job_meta(
             job_id,
@@ -235,24 +385,17 @@ def _run_backtest_job(job_id: str) -> None:
             error=str(exc),
         )
     finally:
-        status_label = "unknown"
         with _JOBS_LOCK:
             current = _JOBS.get(job_id)
             if current is not None:
                 status_label = current.meta.status.value
+            _JOB_THREADS.pop(job_id, None)
             _refresh_queue_depth_locked()
         observe_job_duration(
             job_type="backtest",
             status=status_label,
             duration_seconds=max(0.0, time.perf_counter() - started_monotonic),
         )
-
-
-def _refresh_arq_queue_depth() -> None:
-    try:
-        set_queue_depth(queue_name="backtest", depth=count_active_backtest_jobs())
-    except Exception:
-        return
 
 
 def _parse_snapshot_payload(payload_data: Any) -> Optional[BacktestRequest]:
@@ -291,7 +434,10 @@ def _save_arq_snapshot(
         result=result.model_dump(mode="json") if result is not None else None,
         cancel_requested=cancel_requested,
     )
-    _refresh_arq_queue_depth()
+    try:
+        set_queue_depth(queue_name="backtest", depth=count_active_backtest_jobs())
+    except Exception:
+        return
 
 
 def run_backtest_job_from_arq(job_id: str, payload_data: dict[str, Any]) -> None:
@@ -335,43 +481,24 @@ def run_backtest_job_from_arq(job_id: str, payload_data: dict[str, Any]) -> None
             raise _BacktestCancelledError("backtest cancelled by user")
 
     try:
-        _raise_if_cancelled_arq()
         meta.status = BacktestJobStatus.RUNNING
         meta.started_at = datetime.now(timezone.utc)
-        meta.progress = 5.0
-        meta.message = "Loading candles"
+        meta.progress = 0.0
+        meta.message = "Queued"
         meta.error = None
-        _save_arq_snapshot(meta=meta, payload=payload, result=None)
 
-        candles = validate_backtest_request(payload)
-        _raise_if_cancelled_arq()
+        def _on_progress(progress: float, message: str) -> None:
+            _raise_if_cancelled_arq()
+            meta.progress = progress
+            meta.message = message
+            meta.error = None
+            _save_arq_snapshot(meta=meta, payload=payload, result=None)
 
-        meta.progress = 25.0
-        meta.message = "Loading funding rates"
-        _save_arq_snapshot(meta=meta, payload=payload, result=None)
-        funding_rates = load_funding_rates(payload.data)
-        _raise_if_cancelled_arq()
-
-        meta.progress = 45.0
-        meta.message = "Running backtest"
-        _save_arq_snapshot(meta=meta, payload=payload, result=None)
-        raw_result = run_backtest(candles=candles, strategy=payload.strategy, funding_rates=funding_rates)
-        _raise_if_cancelled_arq()
-
-        meta.progress = 80.0
-        meta.message = "Calculating analysis/scoring"
-        _save_arq_snapshot(meta=meta, payload=payload, result=None)
-        analysis_input = build_strategy_analysis_input(summary=raw_result.summary, strategy=payload.strategy)
-        analysis = analyze_strategy(analysis_input)
-        scoring_input = build_strategy_scoring_input(
-            summary=raw_result.summary,
-            strategy=payload.strategy,
-            equity_curve=raw_result.equity_curve,
-            interval_value=payload.data.interval.value,
+        result = _run_backtest_pipeline(
+            payload,
+            on_progress=_on_progress,
+            raise_if_cancelled=_raise_if_cancelled_arq,
         )
-        scoring = score_strategy(scoring_input)
-        result = raw_result.model_copy(update={"analysis": analysis, "scoring": scoring})
-        _raise_if_cancelled_arq()
 
         meta.status = BacktestJobStatus.COMPLETED
         meta.finished_at = datetime.now(timezone.utc)
@@ -409,6 +536,39 @@ def run_backtest_job_from_arq(job_id: str, payload_data: dict[str, Any]) -> None
         )
 
 
+def _start_local_backtest_worker(job_id: str) -> None:
+    thread = threading.Thread(target=_run_backtest_job, args=(job_id,), daemon=True)
+    with _JOBS_LOCK:
+        _JOB_THREADS[job_id] = thread
+        _refresh_queue_depth_locked()
+    try:
+        thread.start()
+    except Exception:
+        with _JOBS_LOCK:
+            _JOB_THREADS.pop(job_id, None)
+            _refresh_queue_depth_locked()
+        raise
+
+
+def _mark_job_recovery_failed(job_id: str, message: str) -> None:
+    with _JOBS_LOCK:
+        record = _JOBS.get(job_id)
+        if record is None:
+            loaded = _load_record_from_snapshot(job_id)
+            if loaded is None:
+                return
+            record = loaded
+            _JOBS[job_id] = record
+        record.meta.status = BacktestJobStatus.FAILED
+        record.meta.finished_at = datetime.now(timezone.utc)
+        record.meta.progress = 100.0
+        record.meta.message = "Backtest failed"
+        record.meta.error = message
+        record.result = None
+        _persist_record_snapshot(record)
+        _refresh_queue_depth_locked()
+
+
 def start_backtest_job(payload: BacktestRequest) -> BacktestStartResponse:
     job_id = uuid.uuid4().hex
     created_at = datetime.now(timezone.utc)
@@ -431,7 +591,10 @@ def start_backtest_job(payload: BacktestRequest) -> BacktestStartResponse:
             result=None,
             cancel_requested=False,
         )
-        _refresh_arq_queue_depth()
+        try:
+            set_queue_depth(queue_name="backtest", depth=count_active_backtest_jobs())
+        except Exception:
+            pass
         try:
             enqueue_backtest_job(job_id=job_id, payload=payload_data)
         except Exception:
@@ -448,7 +611,10 @@ def start_backtest_job(payload: BacktestRequest) -> BacktestStartResponse:
                 payload=payload_data,
                 result=None,
             )
-            _refresh_arq_queue_depth()
+            try:
+                set_queue_depth(queue_name="backtest", depth=count_active_backtest_jobs())
+            except Exception:
+                pass
             _LOGGER.exception("enqueue backtest job failed: %s", job_id)
             raise
         return BacktestStartResponse(job_id=job_id, status=BacktestJobStatus.PENDING)
@@ -457,12 +623,100 @@ def start_backtest_job(payload: BacktestRequest) -> BacktestStartResponse:
 
     with _JOBS_LOCK:
         _cleanup_jobs_locked(created_at)
-        _JOBS[job_id] = _BacktestJobRecord(meta=meta, payload=payload)
+        record = _BacktestJobRecord(meta=meta, payload=payload)
+        _JOBS[job_id] = record
+        _persist_record_snapshot(record)
         _refresh_queue_depth_locked()
 
-    thread = threading.Thread(target=_run_backtest_job, args=(job_id,), daemon=True)
-    thread.start()
+    _start_local_backtest_worker(job_id)
     return BacktestStartResponse(job_id=job_id, status=BacktestJobStatus.PENDING)
+
+
+def restart_backtest_job(job_id: str) -> BacktestStartResponse:
+    with _JOBS_LOCK:
+        _cleanup_jobs_locked()
+        record = _JOBS.get(job_id)
+        if record is None:
+            loaded = _load_record_from_snapshot(job_id)
+            if loaded is None:
+                raise KeyError(f"backtest job not found: {job_id}")
+            _JOBS[job_id] = loaded
+            record = loaded
+        if record.meta.status not in _FINISHED_STATUSES:
+            raise ValueError("backtest job is not finished")
+        payload = record.payload.model_copy(deep=True)
+
+    return start_backtest_job(payload)
+
+
+def recover_interrupted_backtest_jobs() -> dict[str, int]:
+    if use_arq_for_backtest():
+        return {"scanned": 0, "restarted": 0, "skipped": 0, "failed": 0}
+    if not _RECOVERY_ENABLED or _RECOVERY_MAX_JOBS <= 0:
+        return {"scanned": 0, "restarted": 0, "skipped": 0, "failed": 0}
+
+    snapshots = list_recoverable_backtest_job_snapshots(limit=_RECOVERY_SCAN_LIMIT)
+    to_start: list[str] = []
+    skipped = 0
+    failed = 0
+
+    for item in snapshots:
+        job_id = str(item.get("job_id") or "").strip()
+        if not job_id:
+            skipped += 1
+            continue
+
+        payload = _parse_snapshot_payload(item.get("payload"))
+        if payload is None:
+            failed += 1
+            _mark_job_recovery_failed(job_id, "backtest request snapshot unavailable for recovery")
+            continue
+
+        with _JOBS_LOCK:
+            active_worker = _JOB_THREADS.get(job_id)
+            if active_worker is not None and active_worker.is_alive():
+                skipped += 1
+                continue
+
+            record = _JOBS.get(job_id)
+            if record is None:
+                loaded = _load_record_from_snapshot(job_id)
+                if loaded is None:
+                    skipped += 1
+                    continue
+                record = loaded
+
+            if record.meta.status in _FINISHED_STATUSES:
+                skipped += 1
+                continue
+
+            if len(to_start) >= _RECOVERY_MAX_JOBS:
+                skipped += 1
+                continue
+
+            record.payload = payload
+            record.cancel_requested = False
+            record.result = None
+            record.meta.status = BacktestJobStatus.PENDING
+            record.meta.started_at = None
+            record.meta.finished_at = None
+            record.meta.progress = 0.0
+            record.meta.message = "Recovered after process restart; restarting backtest"
+            record.meta.error = None
+            _JOBS[job_id] = record
+            try:
+                set_backtest_cancel_requested(job_id, False)
+            except Exception:
+                pass
+            _persist_record_snapshot(record)
+            to_start.append(job_id)
+
+    restarted = 0
+    for job_id in to_start:
+        _start_local_backtest_worker(job_id)
+        restarted += 1
+
+    return {"scanned": len(snapshots), "restarted": restarted, "skipped": skipped, "failed": failed}
 
 
 def get_backtest_job_status(job_id: str) -> BacktestStatusResponse:
@@ -474,7 +728,17 @@ def get_backtest_job_status(job_id: str) -> BacktestStatusResponse:
         _cleanup_jobs_locked()
         record = _JOBS.get(job_id)
         if record is None:
-            raise KeyError(f"backtest job not found: {job_id}")
+            loaded = _load_record_from_snapshot(job_id)
+            if loaded is None:
+                raise KeyError(f"backtest job not found: {job_id}")
+            _JOBS[job_id] = loaded
+            record = loaded
+        record = _refresh_record_from_snapshot_for_remote_worker_locked(job_id, record)
+        _ensure_running_job_alive_locked(job_id, record)
+        if record.meta.status in _FINISHED_STATUSES and record.result is None:
+            retry_loaded = _load_record_from_snapshot(job_id)
+            if retry_loaded is not None and retry_loaded.result is not None:
+                record.result = retry_loaded.result
         meta = record.meta.model_copy(deep=True)
         result = record.result.model_copy(deep=True) if record.result is not None else None
     return BacktestStatusResponse(job=meta, result=result)
@@ -499,18 +763,27 @@ def cancel_backtest_job(job_id: str) -> BacktestJobMeta:
         _cleanup_jobs_locked()
         record = _JOBS.get(job_id)
         if record is None:
-            raise KeyError(f"backtest job not found: {job_id}")
+            loaded = _load_record_from_snapshot(job_id)
+            if loaded is None:
+                raise KeyError(f"backtest job not found: {job_id}")
+            _JOBS[job_id] = loaded
+            record = loaded
 
         if record.meta.status in _FINISHED_STATUSES:
             return record.meta.model_copy(deep=True)
 
         record.cancel_requested = True
+        try:
+            set_backtest_cancel_requested(job_id, True)
+        except Exception:
+            pass
         record.meta.message = "Cancellation requested"
         if record.meta.status == BacktestJobStatus.PENDING:
             record.meta.status = BacktestJobStatus.CANCELLED
             record.meta.finished_at = datetime.now(timezone.utc)
             record.meta.progress = 0.0
             record.meta.error = None
+        _persist_record_snapshot(record)
         _refresh_queue_depth_locked()
 
         return record.meta.model_copy(deep=True)

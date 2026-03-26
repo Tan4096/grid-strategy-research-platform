@@ -1715,6 +1715,8 @@ def restart_optimization_job(job_id: str) -> OptimizationStartResponse:
                 raise KeyError(f"optimization job not found: {job_id}")
             _JOBS[job_id] = loaded
             record = loaded
+        if record.meta.status not in _FINISHED_JOB_STATUSES:
+            raise ValueError("optimization job is not finished")
         payload_data = record.request_payload if isinstance(record.request_payload, dict) else None
 
     if payload_data is None:

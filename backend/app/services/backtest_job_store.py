@@ -264,3 +264,32 @@ def count_active_backtest_jobs() -> int:
             """
         ).fetchone()
     return int(row["cnt"] if row is not None else 0)
+
+
+def list_recoverable_backtest_job_snapshots(limit: int = 20) -> list[Dict[str, Any]]:
+    _ensure_db()
+    capped_limit = max(1, min(int(limit), 200))
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT job_id, status, meta_json, payload_json, cancel_requested
+            FROM backtest_job_snapshots
+            WHERE status IN ('pending', 'running')
+            ORDER BY updated_at DESC
+            LIMIT ?
+            """,
+            (capped_limit,),
+        ).fetchall()
+
+    result: list[Dict[str, Any]] = []
+    for row in rows:
+        result.append(
+            {
+                "job_id": str(row["job_id"]),
+                "status": str(row["status"]),
+                "meta": json.loads(row["meta_json"]),
+                "payload": json.loads(row["payload_json"]) if row["payload_json"] else None,
+                "cancel_requested": bool(int(row["cancel_requested"] or 0)),
+            }
+        )
+    return result

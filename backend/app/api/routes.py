@@ -67,6 +67,7 @@ from app.services.backtest_engine import run_backtest
 from app.services.backtest_jobs import (
     cancel_backtest_job,
     get_backtest_job_status,
+    restart_backtest_job,
     start_backtest_job,
     validate_backtest_request,
 )
@@ -285,6 +286,27 @@ def backtest_cancel_api(job_id: str, _principal: OperatorPrincipal) -> dict[str,
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"job_id": meta.job_id, "status": meta.status.value}
+
+
+@router.post("/backtest/{job_id}/restart", response_model=BacktestStartResponse)
+def backtest_restart_api(job_id: str, _principal: OperatorPrincipal) -> BacktestStartResponse:
+    try:
+        return restart_backtest_job(job_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ArqEnqueueError as exc:
+        raise ApiError(
+            status_code=503,
+            code="TASK_ENQUEUE_FAILED",
+            message="回测任务入队失败，请稍后重试",
+            meta={
+                "queue": exc.queue,
+                "backend": exc.backend,
+                "retryable": exc.retryable,
+            },
+        ) from exc
 
 
 @router.get("/market/params", response_model=MarketParamsResponse)
@@ -872,6 +894,17 @@ def optimization_restart_api(job_id: str, _principal: OperatorPrincipal) -> Opti
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ArqEnqueueError as exc:
+        raise ApiError(
+            status_code=503,
+            code="TASK_ENQUEUE_FAILED",
+            message="优化任务入队失败，请稍后重试",
+            meta={
+                "queue": exc.queue,
+                "backend": exc.backend,
+                "retryable": exc.retryable,
+            },
+        ) from exc
 
 
 @router.get("/optimization/{job_id}/export", response_class=StreamingResponse)
